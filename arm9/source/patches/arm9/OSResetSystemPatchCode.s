@@ -3,6 +3,22 @@
 .syntax unified
 
 .thumb
+
+// Alternate entry for the in-game exit combo. The exit combo brings its own
+// resident arm7 code, which has already quiesced that cpu and is parked waiting,
+// so both the reset command to the game's arm7 and the wait for its answer are
+// skipped. Everything from here on (reloading Pico Loader off the sd card and
+// handing both cpus over) is shared with the sdk reset path below.
+.global patch_osresetsystem_entry_arm7Parked
+.type patch_osresetsystem_entry_arm7Parked, %function
+patch_osresetsystem_entry_arm7Parked:
+    adr r0, regIpcSync
+    ldmia r0, {r0, r1, r3, r4, r5, r6, r7}
+    mov r9, r4
+    mov r10, r7
+
+    b bootLoaderBinaries
+
 .global patch_osresetsystem_entry
 .type patch_osresetsystem_entry, %function
 patch_osresetsystem_entry:
@@ -32,6 +48,7 @@ patch_osresetsystem_entry_jump_to_twl_arm7_sync:
     cmp r7, #1
     bne 2b // while ipc sync from arm7 is not 1
 
+bootLoaderBinaries:
     adds r0, #(0x04000240 - 0x04000180)
 
     // map vram ABCD to LCDC
@@ -109,6 +126,14 @@ patch_osresetsystem_bootPicoLoader:
     ldrh r0, [r3, #2] // loader_info_t::picoLoaderBootDrive
     strh r0, [r5, #8] // pload_header7_t::bootDrive
 
+    // Hand the dldi driver over. The reloaded loader can still read the sd card
+    // through the platform patch code, but that is not something it can pass on
+    // to homebrew, so without this an exit to the launcher lands in a launcher
+    // with no filesystem at all. Zero when nothing was preserved, which is what
+    // the header already holds for a plain retail soft reset.
+    ldr r0, patch_osresetsystem_dldi_address
+    str r0, [r5, #4] // pload_header7_t::dldiDriver
+
     adr r0, regVramCntA
     ldmia r0, {r0, r4, r6, r7}
     // r0 = regVramCntA
@@ -184,6 +209,10 @@ vramCDSettings:
 
 .global patch_osresetsystem_cheats_address
 patch_osresetsystem_cheats_address:
+    .word 0
+
+.global patch_osresetsystem_dldi_address
+patch_osresetsystem_dldi_address:
     .word 0
 
 .pool

@@ -11,8 +11,12 @@ public:
     /// @param cheatsLength The length of the cheats data, or zero when there are no cheats.
     /// @param cheatsPtr Pointer to where the cheats need to be stored, or \c nullptr when there are no cheats.
     /// @param bannerSavePathPtr Pointer to where the banner save path needs to be stored, or \c nullptr when there is no banner save.
+    /// @param dldiLength The number of bytes to reserve for a copy of the dldi
+    ///        driver, or zero when it does not need to be carried over.
+    /// @param dldiPtr Pointer to where the dldi driver needs to be stored, or
+    ///        \c nullptr when there is no room or none was asked for.
     /// @param runInDSiMode \c true if the rom should be loaded in DSi mode, or \c false otherwise.
     /// @return A pointer to the patch space in IWRAM, or \c nullptr if the patches have been placed in main memory.
-    void* ApplyPatches(const LoaderPlatform* loaderPlatform, u32 cheatsLength,
-        void*& cheatsPtr, char*& bannerSavePathPtr, bool runInDSiMode) const;
+    void* ApplyPatches(const LoaderPlatform* loaderPlatform, u32 cheatsLength, void*& cheatsPtr,
+        char*& bannerSavePathPtr, u32 dldiLength, void*& dldiPtr, bool runInDSiMode) const;
 };

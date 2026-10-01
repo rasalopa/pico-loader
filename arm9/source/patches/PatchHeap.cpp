@@ -46,6 +46,18 @@ void PatchHeap::AddFreeSpace(void* block, u32 size)
     _freeBlocks = heapBlock;
 }
 
+bool PatchHeap::CanAlloc(u32 size) const
+{
+    const PatchHeapBlock* cur = _freeBlocks;
+    while (cur)
+    {
+        if (cur->size >= size)
+            return true;
+        cur = cur->next;
+    }
+    return false;
+}
+
 void* PatchHeap::Alloc(u32 size)
 {
     PatchHeapBlock* prev = nullptr;

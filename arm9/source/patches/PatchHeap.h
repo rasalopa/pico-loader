@@ -19,6 +19,12 @@ public:
     /// @return A pointer to the allocated block if successful, or nullptr otherwise.
     void* Alloc(u32 size);
 
+    /// @brief Checks whether a block of the given size could be allocated.
+    ///        Unlike \see Alloc this does not halt when no space is available.
+    /// @param size The size to check.
+    /// @return True if a contiguous free block of at least the given size exists.
+    bool CanAlloc(u32 size) const;
+
 private:
     struct PatchHeapBlock
     {

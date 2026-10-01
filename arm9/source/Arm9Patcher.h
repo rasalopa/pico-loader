@@ -17,6 +17,11 @@ public:
         /// @brief Pointer to the cheats pointer used for soft reset.
         ///        This pointer must be set to keep cheats over soft resets.
         void** softResetCheatsPointer;
+
+        /// @brief Pointer to the dldi driver pointer used for soft reset.
+        ///        This pointer must be set for an in-game exit to hand the next
+        ///        rom a usable filesystem.
+        void** softResetDldiPointer;
     };
 
     /// @brief Applies arm9 patches using the given \p loaderPlatform.

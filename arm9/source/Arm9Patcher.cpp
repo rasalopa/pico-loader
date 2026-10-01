@@ -166,12 +166,15 @@ Arm9Patcher::PatchResult Arm9Patcher::ApplyPatches(const LoaderPlatform* loaderP
     };
     PatchCollection patchCollection;
     OSResetSystemPatch* osResetSystemPatch = nullptr;
+    bool isPokemonDownloader = false;
+    bool exitComboEnabled = false;
     if (sdkVersion != 0)
     {
         if (*(vu32*)0x02FFF00C == GAMECODE("ADAJ") &&
             romHeader->arm9LoadAddress == 0x02004000 &&
             romHeader->arm9EntryAddress == 0x02004800)
         {
+            isPokemonDownloader = true;
             // pokemon downloader
             patchContext.GetPatchHeap().AddFreeSpace((void*)0x023FF160, 0x6A0);
             patchCollection.AddPatch(new PokemonDownloaderArm9Patch(loaderInfo));
@@ -198,6 +201,10 @@ Arm9Patcher::PatchResult Arm9Patcher::ApplyPatches(const LoaderPlatform* loaderP
             }
         }
 
+        // DSi mode is out of scope, and the downloader's patch heap at 0x023FF160
+        // overlaps the exit request block.
+        exitComboEnabled = !runInDSiMode && !isPokemonDownloader;
+
         if (sdkVersion.IsTwlSdk())
         {
             if (!twlRomHeader->IsDsiWare())
@@ -218,7 +225,9 @@ Arm9Patcher::PatchResult Arm9Patcher::ApplyPatches(const LoaderPlatform* loaderP
         }
 
         patchCollection.AddPatch(new CardiReadRomIdCorePatch());
-        osResetSystemPatch = new OSResetSystemPatch(loaderInfo, runInDSiMode);
+        // The exit combo needs the reboot code even in games that never call
+        // OS_ResetSystem, which is most of them.
+        osResetSystemPatch = new OSResetSystemPatch(loaderInfo, runInDSiMode, exitComboEnabled);
         patchCollection.AddPatch(osResetSystemPatch);
         AddGamePatches(patchCollection, romHeader->gameCode, apListEntry);
 
@@ -240,14 +249,17 @@ Arm9Patcher::PatchResult Arm9Patcher::ApplyPatches(const LoaderPlatform* loaderP
     ic_invalidateAll();
 
     void** softResetCheatsPointer = nullptr;
+    void** softResetDldiPointer = nullptr;
     if (osResetSystemPatch != nullptr)
     {
         softResetCheatsPointer = osResetSystemPatch->GetCheatsPointerAtTarget();
+        softResetDldiPointer = osResetSystemPatch->GetDldiPointerAtTarget();
     }
 
     return PatchResult
     {
-        .softResetCheatsPointer = softResetCheatsPointer
+        .softResetCheatsPointer = softResetCheatsPointer,
+        .softResetDldiPointer = softResetDldiPointer
     };
 }
 

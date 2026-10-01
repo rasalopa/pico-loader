@@ -8,6 +8,7 @@ DEFINE_SECTION_SYMBOLS(patch_osresetsystem);
 DEFINE_SECTION_SYMBOLS(patch_osresetsystem_boot);
 
 extern "C" void patch_osresetsystem_entry(void);
+extern "C" void patch_osresetsystem_entry_arm7Parked(void);
 extern "C" void patch_osresetsystem_bootPicoLoader(void);
 
 extern const loader_info_t* patch_osresetsystem_loader_info_address;
@@ -16,6 +17,7 @@ extern u32 patch_osresetsystem_bootPicoLoader_address;
 extern u16 patch_osresetsystem_entry_jump_to_twl_arm7_sync;
 extern u32 patch_osresetsystem_arm7Entry_address;
 extern u32 patch_osresetsystem_cheats_address;
+extern u32 patch_osresetsystem_dldi_address;
 
 class OSResetSystemPart2PatchCode : public PatchCode
 {
@@ -34,6 +36,11 @@ public:
     {
         return (void**)GetAddressAtTarget(&patch_osresetsystem_cheats_address);
     }
+
+    void** GetDldiPointerAtTarget() const
+    {
+        return (void**)GetAddressAtTarget(&patch_osresetsystem_dldi_address);
+    }
 };
 
 class OSResetSystemPatchCode : public PatchCode
@@ -51,5 +58,11 @@ public:
     const void* GetOSResetSystemFunction() const
     {
         return GetAddressAtTarget((void*)patch_osresetsystem_entry);
+    }
+
+    /// @brief Returns the entry to use when the caller has already parked the arm7.
+    const void* GetArm7ParkedFunction() const
+    {
+        return GetAddressAtTarget((void*)patch_osresetsystem_entry_arm7Parked);
     }
 };

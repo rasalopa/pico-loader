@@ -31,10 +31,11 @@ static u32 correctAddress(u32 address, const nds_header_ntr_t* romHeader)
     }
 }
 
-void* Arm7Patcher::ApplyPatches(const LoaderPlatform* loaderPlatform, u32 cheatsLength,
-    void*& cheatsPtr, char*& bannerSavePathPtr, bool runInDSiMode) const
+void* Arm7Patcher::ApplyPatches(const LoaderPlatform* loaderPlatform, u32 cheatsLength, void*& cheatsPtr,
+    char*& bannerSavePathPtr, u32 dldiLength, void*& dldiPtr, bool runInDSiMode) const
 {
     cheatsPtr = nullptr;
+    dldiPtr = nullptr;
     auto romHeader = (const nds_header_ntr_t*)TWL_SHARED_MEMORY->ntrSharedMem.romHeader;
     auto twlRomHeader = (const nds_header_twl_t*)TWL_SHARED_MEMORY->twlRomHeader;
     ModuleParamsLocator moduleParamsLocator;
@@ -106,6 +107,17 @@ void* Arm7Patcher::ApplyPatches(const LoaderPlatform* loaderPlatform, u32 cheats
             cheatsPtr = cheats;
             patchCollection.AddPatch(new CheatEnginePatch(cheats));
             mainMemoryArenaLo += cheatsLength;
+        }
+
+        if (dldiLength > 0)
+        {
+            // Kept out of the way of the game so the in-game exit can hand it to
+            // the launcher: the reloaded loader reaches the sd card through the
+            // platform patch code, but that is not a driver it can pass on.
+            mainMemoryArenaLo = (mainMemoryArenaLo + 31) & ~31;
+            dldiPtr = (void*)correctAddress(mainMemoryArenaLo, romHeader);
+            LOG_DEBUG("Dldi driver placed at 0x%p\n", dldiPtr);
+            mainMemoryArenaLo += dldiLength;
         }
 
         if (romHeader->unitCode == 0) // seems only present on NITRO, not on HYBRID or LIMITED

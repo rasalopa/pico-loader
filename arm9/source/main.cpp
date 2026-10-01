@@ -49,6 +49,7 @@ static u16 sIsCloneBootRom;
 static u16 sRunInDSiMode;
 static loader_info_t sLoaderInfo;
 static void** sSoftResetCheatsPointer = nullptr;
+static void** sSoftResetDldiPointer = nullptr;
 
 u16 gIsDsiMode;
 
@@ -156,21 +157,29 @@ static void handleApplyArm9PatchesCommand()
         sRunInDSiMode,
         &sLoaderInfo);
     sSoftResetCheatsPointer = result.softResetCheatsPointer;
+    sSoftResetDldiPointer = result.softResetDldiPointer;
     ipc_sendWordDirect(1);
 }
 
-static void handleApplyArm7PatchesCommand(u32 cheatsLength)
+static void handleApplyArm7PatchesCommand(u32 cheatsLength, u32 dldiLength)
 {
     void* cheats = nullptr;
     char* bannerSavePath = nullptr;
-    void* patchSpaceStart = Arm7Patcher().ApplyPatches(sLoaderPlatform, cheatsLength, cheats, bannerSavePath, sRunInDSiMode);
+    void* dldi = nullptr;
+    void* patchSpaceStart = Arm7Patcher().ApplyPatches(
+        sLoaderPlatform, cheatsLength, cheats, bannerSavePath, dldiLength, dldi, sRunInDSiMode);
     if (sSoftResetCheatsPointer != nullptr)
     {
         *sSoftResetCheatsPointer = cheats;
     }
+    if (sSoftResetDldiPointer != nullptr)
+    {
+        *sSoftResetDldiPointer = dldi;
+    }
     ipc_sendWordDirect((u32)patchSpaceStart);
     ipc_sendWordDirect((u32)cheats);
     ipc_sendWordDirect((u32)bannerSavePath);
+    ipc_sendWordDirect((u32)dldi);
 }
 
 static void handleSetAPInfoCommand()
@@ -317,7 +326,8 @@ static void handleArm7Command(u32 command)
         case IPC_COMMAND_ARM9_APPLY_ARM7_PATCHES:
         {
             u32 cheatsLength = receiveFromArm7();
-            handleApplyArm7PatchesCommand(cheatsLength);
+            u32 dldiLength = receiveFromArm7();
+            handleApplyArm7PatchesCommand(cheatsLength, dldiLength);
             break;
         }
         case IPC_COMMAND_ARM9_SET_AP_INFO:

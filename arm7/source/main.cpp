@@ -110,6 +110,46 @@ static void handleSavePath()
     sLoader.SetSavePath(gLoaderHeader.loadParams.savePath);
 }
 
+// Copy of the exit request block in the low 4MB mirror, where a DS-mode game
+// on a DSi (running with 4MB RAM) writes it.
+#define EXIT_REQUEST_LOW_MIRROR ((exit_request_block_t*)0x023FF680)
+
+static bool isExitRequestBlockValid(const exit_request_block_t& block)
+{
+    if (block.requestMagic != EXIT_REQUEST_REQUEST_MAGIC ||
+        block.pathMagic != EXIT_REQUEST_PATH_MAGIC)
+    {
+        return false;
+    }
+    if (block.launcherPath[0] == 0 ||
+        block.launcherPath[sizeof(block.launcherPath) - 1] != 0)
+    {
+        return false;
+    }
+    return block.pathChecksum == exit_request_calcChecksum(block.launcherPath);
+}
+
+// Returns a pending valid exit request, or nullptr. Both copies are checked
+// because a DS-mode game on a DSi may only reach the low mirror.
+static exit_request_block_t* findExitRequest()
+{
+    if (isExitRequestBlockValid(TWL_SHARED_MEMORY->exitRequest))
+    {
+        return &TWL_SHARED_MEMORY->exitRequest;
+    }
+    if (isExitRequestBlockValid(*EXIT_REQUEST_LOW_MIRROR))
+    {
+        return EXIT_REQUEST_LOW_MIRROR;
+    }
+    return nullptr;
+}
+
+static void clearExitRequest()
+{
+    TWL_SHARED_MEMORY->exitRequest.requestMagic = 0;
+    EXIT_REQUEST_LOW_MIRROR->requestMagic = 0;
+}
+
 static void clearSoundRegisters()
 {
     REG_SOUNDCNT = 0;
@@ -216,6 +256,8 @@ extern "C" void loaderMain()
     if (multiboot)
     {
         LOG_DEBUG("Multiboot\n");
+        // a multiboot child must not inherit the parent's exit request block
+        memset(&TWL_SHARED_MEMORY->exitRequest, 0, sizeof(exit_request_block_t));
         sLoader.Load(BootMode::Multiboot);
     }
     else if (((nds_header_ntr_t*)TWL_SHARED_MEMORY->ntrSharedMem.romHeader)->arm7EntryAddress == (u32)gLoaderHeader.entryPoint)
@@ -223,7 +265,32 @@ extern "C" void loaderMain()
         LOG_DEBUG("Retail soft reset detected\n");
         u32 originalArm7EntryAddress = ((nds_header_ntr_t*)TWL_SHARED_MEMORY->ntrSharedMem.cardRomHeader)->arm7EntryAddress;
         ((nds_header_ntr_t*)TWL_SHARED_MEMORY->ntrSharedMem.romHeader)->arm7EntryAddress = originalArm7EntryAddress;
-        sLoader.Load(BootMode::SdkResetSystem);
+        exit_request_block_t* exitRequest = findExitRequest();
+        // clear both copies first so a stale request can never fire twice
+        clearExitRequest();
+        if (exitRequest)
+        {
+            LOG_DEBUG("Exit to launcher requested\n");
+            // after a soft reset the header contains the file image, so the
+            // launcher path only survives inside the exit request block;
+            // gLoaderHeader lives in vram and is safe from ClearMainMemory
+            strncpy(gLoaderHeader.loadParams.romPath, exitRequest->launcherPath,
+                sizeof(gLoaderHeader.loadParams.romPath) - 1);
+            gLoaderHeader.loadParams.romPath[sizeof(gLoaderHeader.loadParams.romPath) - 1] = 0;
+            gLoaderHeader.loadParams.savePath[0] = 0;
+            sLoader.SetCheats(nullptr); // the copied cheats belong to the game
+            sLoader.SetRomPath(gLoaderHeader.loadParams.romPath);
+            handleSavePath();
+            sLoader.SetArguments(nullptr, 0);
+            // boot the launcher exactly like a fresh launcher boot would,
+            // pointing its return path at itself
+            sLoader.SetLauncherPath(gLoaderHeader.loadParams.romPath);
+            sLoader.Load(BootMode::Normal);
+        }
+        else
+        {
+            sLoader.Load(BootMode::SdkResetSystem);
+        }
     }
     else
     {

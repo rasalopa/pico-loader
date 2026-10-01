@@ -73,6 +73,7 @@ private:
     void SetupSharedMemory(u32 cardId, u32 agbMem, u32 resetParam, u32 romOffset, u32 bootType);
     void LoadFirmwareUserSettings();
     bool ShouldAttemptDldiPatch();
+    void WriteExitRequestBlock();
     void ClearMainMemory();
     void CreateRomClusterTable();
     bool TryLoadRomHeader(u32 romOffset);

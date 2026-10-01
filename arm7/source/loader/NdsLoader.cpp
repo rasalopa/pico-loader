@@ -65,6 +65,7 @@ void NdsLoader::Load(BootMode bootMode)
         u8* gap200Buffer = nullptr;
         u8* pokemonBuffer = nullptr;
         u8* multibootBuffer = nullptr;
+        u8* exitRequestBuffer = nullptr;
         if (bootMode == BootMode::SdkResetSystem)
         {
             gap0Buffer = new u8[sizeof(TWL_SHARED_MEMORY->ntrSharedMem.gap0)];
@@ -74,6 +75,8 @@ void NdsLoader::Load(BootMode bootMode)
             multibootBuffer = new u8[sizeof(TWL_SHARED_MEMORY->ntrSharedMem.multibootInfo)];
             memcpy(multibootBuffer, &TWL_SHARED_MEMORY->ntrSharedMem.multibootInfo,
                 sizeof(TWL_SHARED_MEMORY->ntrSharedMem.multibootInfo));
+            exitRequestBuffer = new u8[sizeof(exit_request_block_t)];
+            memcpy(exitRequestBuffer, &TWL_SHARED_MEMORY->exitRequest, sizeof(exit_request_block_t));
             if (*(vu32*)0x02FFF00C == GAMECODE("ADAJ"))
             {
                 pokemonBuffer = new u8[0x160];
@@ -104,6 +107,15 @@ void NdsLoader::Load(BootMode bootMode)
                 memcpy((void*)0x02FFF000, pokemonBuffer, 0x160);
                 delete[] pokemonBuffer;
             }
+            // keep the exit combo alive across game-initiated soft resets,
+            // but never carry a pending request over
+            memcpy(&TWL_SHARED_MEMORY->exitRequest, exitRequestBuffer, sizeof(exit_request_block_t));
+            delete[] exitRequestBuffer;
+            TWL_SHARED_MEMORY->exitRequest.requestMagic = 0;
+        }
+        else
+        {
+            WriteExitRequestBlock();
         }
     }
 
@@ -564,12 +576,21 @@ void NdsLoader::HandleHomebrewPatching()
 
 void NdsLoader::ApplyArm7Patches()
 {
+    // Keep a copy of the dldi driver out of the game's way when returning to the
+    // launcher is possible. Rebooting into Pico Loader loses it otherwise: the
+    // reloaded loader can still reach the sd card through the platform patch
+    // code, but that is not a driver it can hand to the launcher, which would
+    // then come up with no filesystem at all.
+    u32 dldiLength = (_launcherPath != nullptr && _launcherPath[0] != 0) ? dldi_getDriverSize() : 0;
+
     sendToArm9(IPC_COMMAND_ARM9_APPLY_ARM7_PATCHES);
     sendToArm9(_cheats ? _cheats->length : 0);
+    sendToArm9(dldiLength);
     PreprocessCheats();
     void* patchSpaceStart = (void*)receiveFromArm9();
     void* cheatsPtr = (void*)receiveFromArm9();
     char* bannerSavePathPtr = (char*)receiveFromArm9();
+    void* dldiPtr = (void*)receiveFromArm9();
     if (cheatsPtr != nullptr && _cheats != nullptr)
     {
         memcpy(cheatsPtr, _cheats, _cheats->length);
@@ -577,6 +598,10 @@ void NdsLoader::ApplyArm7Patches()
     if (bannerSavePathPtr != nullptr)
     {
         memcpy(bannerSavePathPtr, _dsiwareSaveResult.bannerSaveFilePath, 64);
+    }
+    if (dldiPtr != nullptr && dldiLength > 0)
+    {
+        dldi_copyToSized(dldiPtr, dldiLength);
     }
     if (patchSpaceStart)
     {
@@ -655,6 +680,11 @@ void NdsLoader::SetupSharedMemory(u32 cardId, u32 agbMem, u32 resetParam, u32 ro
         // for Pokemon
         memcpy((void*)0x027FF000, (void*)0x02FFF000, 0x160);
         memcpy((void*)0x023FF000, (void*)0x02FFF000, 0x160);
+        // The exit request block sits between the two ranges above, so mirror
+        // it too. A DS-mode game on a DSi runs with 4MB RAM and only sees the
+        // low copy; on a real DS every address aliases the same bytes.
+        memcpy((void*)0x027FF680, &TWL_SHARED_MEMORY->exitRequest, sizeof(exit_request_block_t));
+        memcpy((void*)0x023FF680, &TWL_SHARED_MEMORY->exitRequest, sizeof(exit_request_block_t));
     }
     else
     {
@@ -715,6 +745,19 @@ bool NdsLoader::ShouldAttemptDldiPatch()
         }
     }
     return true;
+}
+
+void NdsLoader::WriteExitRequestBlock()
+{
+    auto& exitRequest = TWL_SHARED_MEMORY->exitRequest;
+    memset(&exitRequest, 0, sizeof(exit_request_block_t));
+    if (!_launcherPath || _launcherPath[0] == 0)
+    {
+        return;
+    }
+    strncpy(exitRequest.launcherPath, _launcherPath, sizeof(exitRequest.launcherPath) - 1);
+    exitRequest.pathChecksum = exit_request_calcChecksum(exitRequest.launcherPath);
+    exitRequest.pathMagic = EXIT_REQUEST_PATH_MAGIC;
 }
 
 void NdsLoader::ClearMainMemory()

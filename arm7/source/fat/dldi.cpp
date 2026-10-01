@@ -100,3 +100,19 @@ void dldi_copyTo(void* target)
 {
     memcpy(target, sDldiBuffer, sizeof(sDldiBuffer));
 }
+
+u32 dldi_getDriverSize()
+{
+    auto header = (const dldi_header_t*)sDldiBuffer;
+    if (header->dldiMagic != DLDI_MAGIC)
+    {
+        return 0;
+    }
+    u32 driverSize = 1 << header->driverSize;
+    return driverSize <= sizeof(sDldiBuffer) ? driverSize : 0;
+}
+
+void dldi_copyToSized(void* target, u32 size)
+{
+    memcpy(target, sDldiBuffer, size > sizeof(sDldiBuffer) ? sizeof(sDldiBuffer) : size);
+}

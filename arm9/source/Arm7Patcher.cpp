@@ -17,6 +17,7 @@
 #include "patches/arm7/sdk5/Sdk5DsiSdCardRedirectPatch.h"
 #include "patches/arm7/PokemonDownloaderArm7Patch.h"
 #include "patches/arm7/cheats/CheatEnginePatch.h"
+#include "patches/arm7/ExitComboArm7Patch.h"
 #include "Arm7Patcher.h"
 
 static u32 correctAddress(u32 address, const nds_header_ntr_t* romHeader)
@@ -157,12 +158,23 @@ void* Arm7Patcher::ApplyPatches(const LoaderPlatform* loaderPlatform, u32 cheats
             patchCollection.AddPatch(new CardiTaskThreadPatch(saveTmpBuffer));
         }
 
-        if (*(vu32*)0x02FFF00C == GAMECODE("ADAJ") &&
+        bool isPokemonDownloader = *(vu32*)0x02FFF00C == GAMECODE("ADAJ") &&
             romHeader->arm9LoadAddress == 0x02004000 &&
-            romHeader->arm9EntryAddress == 0x02004800)
+            romHeader->arm9EntryAddress == 0x02004800;
+        if (isPokemonDownloader)
         {
-            // pokemon downloader
             patchCollection.AddPatch(new PokemonDownloaderArm7Patch());
+        }
+
+        // Added last on purpose: this is an optional feature that must never take
+        // patch heap a mandatory patch needs. Because ApplyPatch runs in insertion
+        // order, every mandatory patch above allocates first and the exit combo
+        // only claims what is left (and gives up when nothing fits).
+        // DSi mode is out of scope, and the downloader's arm9 patch heap at
+        // 0x023FF160 overlaps the exit request block.
+        if (!runInDSiMode && !isPokemonDownloader)
+        {
+            patchCollection.AddPatch(new ExitComboArm7Patch());
         }
 
         arm7ArenaPatch->SetMainMemoryArenaLo((void*)mainMemoryArenaLo);

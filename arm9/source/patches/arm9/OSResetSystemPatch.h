@@ -40,7 +40,7 @@ private:
     u16 _hybrid = false;
     u16 _runInDSiMode;
     const loader_info_t* _loaderInfo;
-    bool _emitWithoutTarget;
+    u16 _emitWithoutTarget;
     void** _cheatsPointer = nullptr;
     void** _dldiPointer = nullptr;
     const void* _arm7ParkedEntryAtTarget = nullptr;

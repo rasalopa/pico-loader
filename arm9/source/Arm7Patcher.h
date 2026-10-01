@@ -14,9 +14,13 @@ public:
     /// @param dldiLength The number of bytes to reserve for a copy of the dldi
     ///        driver, or zero when it does not need to be carried over.
     /// @param dldiPtr Pointer to where the dldi driver needs to be stored, or
-    ///        \c nullptr when there is no room or none was asked for.
+    ///        \c nullptr when there is no room, none was asked for, or the in-game
+    ///        exit could not be installed.
+    /// @param exitComboArm9Installed \c true when the arm9 half of the in-game exit
+    ///        was installed, which the arm7 half and the dldi copy depend on.
     /// @param runInDSiMode \c true if the rom should be loaded in DSi mode, or \c false otherwise.
     /// @return A pointer to the patch space in IWRAM, or \c nullptr if the patches have been placed in main memory.
     void* ApplyPatches(const LoaderPlatform* loaderPlatform, u32 cheatsLength, void*& cheatsPtr,
-        char*& bannerSavePathPtr, u32 dldiLength, void*& dldiPtr, bool runInDSiMode) const;
+        char*& bannerSavePathPtr, u32 dldiLength, void*& dldiPtr, bool exitComboArm9Installed,
+        bool runInDSiMode) const;
 };

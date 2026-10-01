@@ -34,6 +34,7 @@
 #include "ApList.h"
 #include "patches/platform/LoaderPlatform.h"
 #include "errorDisplay/ErrorDisplay.h"
+#include "../../include/picoLoader7.h"
 #include "Arm9Patcher.h"
 
 #define PARENT_SECTION_START    0x02001000
@@ -167,6 +168,7 @@ Arm9Patcher::PatchResult Arm9Patcher::ApplyPatches(const LoaderPlatform* loaderP
     };
     PatchCollection patchCollection;
     OSResetSystemPatch* osResetSystemPatch = nullptr;
+    ExitComboPatch* exitComboPatch = nullptr;
     bool isPokemonDownloader = false;
     bool exitComboEnabled = false;
     if (sdkVersion != 0)
@@ -202,9 +204,15 @@ Arm9Patcher::PatchResult Arm9Patcher::ApplyPatches(const LoaderPlatform* loaderP
             }
         }
 
-        // DSi mode is out of scope, and the downloader's patch heap at 0x023FF160
-        // overlaps the exit request block.
-        exitComboEnabled = !runInDSiMode && !isPokemonDownloader;
+        // The in-game exit covers DS mode retail games booted through dldi with a
+        // launcher to go back to. Left out: DSi mode, DSi-enhanced roms, DSiWare
+        // (it lacks the card patches the reboot code builds on), and the
+        // downloader, whose patch heap at 0x023FF160 overlaps the exit request block.
+        exitComboEnabled = !runInDSiMode && !isPokemonDownloader
+            && romHeader->unitCode == 0
+            && !(sdkVersion.IsTwlSdk() && twlRomHeader->IsDsiWare())
+            && loaderInfo->picoLoaderBootDrive == PLOAD_BOOT_DRIVE_DLDI
+            && TWL_SHARED_MEMORY->exitRequest.pathMagic == EXIT_REQUEST_PATH_MAGIC;
 
         if (sdkVersion.IsTwlSdk())
         {
@@ -238,7 +246,8 @@ Arm9Patcher::PatchResult Arm9Patcher::ApplyPatches(const LoaderPlatform* loaderP
         // exit combo only claims what is left (and gives up when nothing fits).
         if (exitComboEnabled)
         {
-            patchCollection.AddPatch(new ExitComboPatch(osResetSystemPatch));
+            exitComboPatch = new ExitComboPatch(osResetSystemPatch);
+            patchCollection.AddPatch(exitComboPatch);
         }
 
         if (moduleParams && compressedEnd != 0)
@@ -269,7 +278,8 @@ Arm9Patcher::PatchResult Arm9Patcher::ApplyPatches(const LoaderPlatform* loaderP
     return PatchResult
     {
         .softResetCheatsPointer = softResetCheatsPointer,
-        .softResetDldiPointer = softResetDldiPointer
+        .softResetDldiPointer = softResetDldiPointer,
+        .exitComboInstalled = exitComboPatch != nullptr && exitComboPatch->IsInstalled()
     };
 }
 

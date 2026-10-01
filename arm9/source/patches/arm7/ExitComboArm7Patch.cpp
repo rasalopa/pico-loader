@@ -11,6 +11,10 @@ static const u32 sIrqDispatchTailPattern[] = { 0xE59F1008u, 0xE7910100u, 0xE59FE
 
 bool ExitComboArm7Patch::FindPatchTarget(PatchContext& patchContext)
 {
+    if (_searched)
+        return true;
+
+    _searched = 1;
     _dispatchTail = patchContext.FindPattern32(sIrqDispatchTailPattern, sizeof(sIrqDispatchTailPattern));
     if (_dispatchTail)
     {
@@ -53,6 +57,7 @@ void ExitComboArm7Patch::ApplyPatch(PatchContext& patchContext)
 
     _dispatchTail[0] = 0xE51FF004; // ldr pc,= address
     _dispatchTail[1] = (u32)exitComboPatchCode->GetExitComboFunction();
+    _installed = 1;
 
     LOG_DEBUG("Arm7 exit combo enabled\n");
 }

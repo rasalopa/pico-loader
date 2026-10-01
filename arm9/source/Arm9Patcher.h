@@ -22,6 +22,10 @@ public:
         ///        This pointer must be set for an in-game exit to hand the next
         ///        rom a usable filesystem.
         void** softResetDldiPointer;
+
+        /// @brief \c true when the arm9 half of the in-game exit was installed.
+        ///        The arm7 patcher only adds its half when this one is in.
+        bool exitComboInstalled;
     };
 
     /// @brief Applies arm9 patches using the given \p loaderPlatform.

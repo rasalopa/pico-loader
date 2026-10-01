@@ -67,6 +67,7 @@ void ExitComboPatch::ApplyPatch(PatchContext& patchContext)
 
     _dispatchTail[0] = 0xE51FF004; // ldr pc,= address
     _dispatchTail[1] = (u32)exitComboPatchCode->GetExitComboFunction();
+    _installed = 1;
 
     LOG_DEBUG("Exit combo enabled\n");
 }

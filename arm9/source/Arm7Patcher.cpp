@@ -33,7 +33,7 @@ static u32 correctAddress(u32 address, const nds_header_ntr_t* romHeader)
 }
 
 void* Arm7Patcher::ApplyPatches(const LoaderPlatform* loaderPlatform, u32 cheatsLength, void*& cheatsPtr,
-    char*& bannerSavePathPtr, u32 dldiLength, void*& dldiPtr, bool runInDSiMode) const
+    char*& bannerSavePathPtr, u32 dldiLength, void*& dldiPtr, bool exitComboArm9Installed, bool runInDSiMode) const
 {
     cheatsPtr = nullptr;
     dldiPtr = nullptr;
@@ -110,15 +110,32 @@ void* Arm7Patcher::ApplyPatches(const LoaderPlatform* loaderPlatform, u32 cheats
             mainMemoryArenaLo += cheatsLength;
         }
 
-        if (dldiLength > 0)
+        // The in-game exit needs its arm7 half as well, and a copy of the dldi
+        // driver kept out of the way of the game: the reloaded loader reaches the
+        // sd card through the platform patch code, but that is not a driver it can
+        // pass on to the launcher. So the copy is only made once the arm9 half is
+        // in and the arm7 dispatcher was found, and without the copy there is no
+        // arm7 half either.
+        ExitComboArm7Patch* exitComboArm7Patch = nullptr;
+        if (exitComboArm9Installed && dldiLength > 0)
         {
-            // Kept out of the way of the game so the in-game exit can hand it to
-            // the launcher: the reloaded loader reaches the sd card through the
-            // platform patch code, but that is not a driver it can pass on.
-            mainMemoryArenaLo = (mainMemoryArenaLo + 31) & ~31;
-            dldiPtr = (void*)correctAddress(mainMemoryArenaLo, romHeader);
-            LOG_DEBUG("Dldi driver placed at 0x%p\n", dldiPtr);
-            mainMemoryArenaLo += dldiLength;
+            exitComboArm7Patch = new ExitComboArm7Patch();
+            exitComboArm7Patch->FindPatchTarget(patchContext);
+            u32 dldiStart = (mainMemoryArenaLo + 31) & ~31;
+            // Leave room for the save buffer and banner path placed after the copy,
+            // below the shared area at the end of this view of main memory.
+            u32 arenaEnd = (dldiStart & ~0x3FFFFF) + 0x3FF000;
+            if (exitComboArm7Patch->HasTarget() && dldiStart + dldiLength + 512 + 64 <= arenaEnd)
+            {
+                mainMemoryArenaLo = dldiStart;
+                dldiPtr = (void*)correctAddress(mainMemoryArenaLo, romHeader);
+                LOG_DEBUG("Dldi driver placed at 0x%p\n", dldiPtr);
+                mainMemoryArenaLo += dldiLength;
+            }
+            else
+            {
+                exitComboArm7Patch = nullptr;
+            }
         }
 
         if (romHeader->unitCode == 0) // seems only present on NITRO, not on HYBRID or LIMITED
@@ -169,12 +186,11 @@ void* Arm7Patcher::ApplyPatches(const LoaderPlatform* loaderPlatform, u32 cheats
         // Added last on purpose: this is an optional feature that must never take
         // patch heap a mandatory patch needs. Because ApplyPatch runs in insertion
         // order, every mandatory patch above allocates first and the exit combo
-        // only claims what is left (and gives up when nothing fits).
-        // DSi mode is out of scope, and the downloader's arm9 patch heap at
-        // 0x023FF160 overlaps the exit request block.
-        if (!runInDSiMode && !isPokemonDownloader)
+        // only claims what is left (and gives up when nothing fits). The arm9
+        // half already left out DSi mode, DSiWare and the Pokemon downloader.
+        if (exitComboArm7Patch != nullptr)
         {
-            patchCollection.AddPatch(new ExitComboArm7Patch());
+            patchCollection.AddPatch(exitComboArm7Patch);
         }
 
         arm7ArenaPatch->SetMainMemoryArenaLo((void*)mainMemoryArenaLo);
@@ -205,6 +221,12 @@ void* Arm7Patcher::ApplyPatches(const LoaderPlatform* loaderPlatform, u32 cheats
         dc_flushAll();
         dc_drainWriteBuffer();
         ic_invalidateAll();
+
+        if (exitComboArm7Patch != nullptr && !exitComboArm7Patch->IsInstalled())
+        {
+            // the arm7 half did not fit after all, so nothing would ever use the copy
+            dldiPtr = nullptr;
+        }
 
         // If in DSi mode and the rom is a DSi rom, restore twl wram.
         if (runInDSiMode)

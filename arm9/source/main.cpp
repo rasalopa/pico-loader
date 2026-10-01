@@ -50,6 +50,7 @@ static u16 sRunInDSiMode;
 static loader_info_t sLoaderInfo;
 static void** sSoftResetCheatsPointer = nullptr;
 static void** sSoftResetDldiPointer = nullptr;
+static u16 sExitComboInstalled; // not bool: .bss is in vram, where byte writes are lost on DS and DS Lite
 
 u16 gIsDsiMode;
 
@@ -158,6 +159,7 @@ static void handleApplyArm9PatchesCommand()
         &sLoaderInfo);
     sSoftResetCheatsPointer = result.softResetCheatsPointer;
     sSoftResetDldiPointer = result.softResetDldiPointer;
+    sExitComboInstalled = result.exitComboInstalled;
     ipc_sendWordDirect(1);
 }
 
@@ -167,7 +169,7 @@ static void handleApplyArm7PatchesCommand(u32 cheatsLength, u32 dldiLength)
     char* bannerSavePath = nullptr;
     void* dldi = nullptr;
     void* patchSpaceStart = Arm7Patcher().ApplyPatches(
-        sLoaderPlatform, cheatsLength, cheats, bannerSavePath, dldiLength, dldi, sRunInDSiMode);
+        sLoaderPlatform, cheatsLength, cheats, bannerSavePath, dldiLength, dldi, sExitComboInstalled, sRunInDSiMode);
     if (sSoftResetCheatsPointer != nullptr)
     {
         *sSoftResetCheatsPointer = cheats;

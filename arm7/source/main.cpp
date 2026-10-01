@@ -147,7 +147,9 @@ static exit_request_block_t* findExitRequest()
 static void clearExitRequest()
 {
     TWL_SHARED_MEMORY->exitRequest.requestMagic = 0;
+    TWL_SHARED_MEMORY->exitRequest.comboMagic = 0;
     EXIT_REQUEST_LOW_MIRROR->requestMagic = 0;
+    EXIT_REQUEST_LOW_MIRROR->comboMagic = 0;
 }
 
 static void clearSoundRegisters()

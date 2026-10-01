@@ -108,10 +108,11 @@ void NdsLoader::Load(BootMode bootMode)
                 delete[] pokemonBuffer;
             }
             // keep the exit combo alive across game-initiated soft resets,
-            // but never carry a pending request over
+            // but never carry a pending request or a held combo over
             memcpy(&TWL_SHARED_MEMORY->exitRequest, exitRequestBuffer, sizeof(exit_request_block_t));
             delete[] exitRequestBuffer;
             TWL_SHARED_MEMORY->exitRequest.requestMagic = 0;
+            TWL_SHARED_MEMORY->exitRequest.comboMagic = 0;
         }
         else
         {
@@ -580,8 +581,10 @@ void NdsLoader::ApplyArm7Patches()
     // launcher is possible. Rebooting into Pico Loader loses it otherwise: the
     // reloaded loader can still reach the sd card through the platform patch
     // code, but that is not a driver it can hand to the launcher, which would
-    // then come up with no filesystem at all.
-    u32 dldiLength = (_launcherPath != nullptr && _launcherPath[0] != 0) ? dldi_getDriverSize() : 0;
+    // then come up with no filesystem at all. The exit request block is what
+    // tells: unlike the launcher path, it survives the game's own soft reset.
+    u32 dldiLength = TWL_SHARED_MEMORY->exitRequest.pathMagic == EXIT_REQUEST_PATH_MAGIC
+        ? dldi_getDriverSize() : 0;
 
     sendToArm9(IPC_COMMAND_ARM9_APPLY_ARM7_PATCHES);
     sendToArm9(_cheats ? _cheats->length : 0);

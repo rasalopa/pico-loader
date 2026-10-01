@@ -12,6 +12,7 @@
 #include "patches/arm9/sdk5/CardiReadRomWithCpuPatch.h"
 #include "patches/arm9/CardiReadRomIdCorePatch.h"
 #include "patches/arm9/OSResetSystemPatch.h"
+#include "patches/arm9/ExitComboPatch.h"
 #include "patches/arm9/PokemonDownloaderArm9Patch.h"
 #include "patches/arm9/DSProtectArm9Patch.h"
 #include "patches/arm9/LastWindowCrcPatch.h"
@@ -230,6 +231,15 @@ Arm9Patcher::PatchResult Arm9Patcher::ApplyPatches(const LoaderPlatform* loaderP
         osResetSystemPatch = new OSResetSystemPatch(loaderInfo, runInDSiMode, exitComboEnabled);
         patchCollection.AddPatch(osResetSystemPatch);
         AddGamePatches(patchCollection, romHeader->gameCode, apListEntry);
+
+        // Added last on purpose: this is an optional feature that must never
+        // take patch heap a mandatory patch needs. Because ApplyPatch runs in
+        // insertion order, every mandatory patch above allocates first and the
+        // exit combo only claims what is left (and gives up when nothing fits).
+        if (exitComboEnabled)
+        {
+            patchCollection.AddPatch(new ExitComboPatch(osResetSystemPatch));
+        }
 
         if (moduleParams && compressedEnd != 0)
         {

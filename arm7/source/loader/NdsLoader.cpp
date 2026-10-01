@@ -108,11 +108,13 @@ void NdsLoader::Load(BootMode bootMode)
                 delete[] pokemonBuffer;
             }
             // keep the exit combo alive across game-initiated soft resets,
-            // but never carry a pending request or a held combo over
+            // but never carry a pending request or a held combo over; the old
+            // dldi copy was taken at boot and a new one is made for this run
             memcpy(&TWL_SHARED_MEMORY->exitRequest, exitRequestBuffer, sizeof(exit_request_block_t));
             delete[] exitRequestBuffer;
             TWL_SHARED_MEMORY->exitRequest.requestMagic = 0;
             TWL_SHARED_MEMORY->exitRequest.comboMagic = 0;
+            TWL_SHARED_MEMORY->exitRequest.dldiDriverAddress = 0;
         }
         else
         {
@@ -605,6 +607,14 @@ void NdsLoader::ApplyArm7Patches()
     if (dldiPtr != nullptr && dldiLength > 0)
     {
         dldi_copyToSized(dldiPtr, dldiLength);
+        // Tell the reloaded loader where the copy is. The block was already
+        // mirrored for a DS mode game, so every copy gets the address.
+        TWL_SHARED_MEMORY->exitRequest.dldiDriverAddress = (u32)dldiPtr;
+        if (!_runInDSiMode)
+        {
+            ((exit_request_block_t*)0x027FF680)->dldiDriverAddress = (u32)dldiPtr;
+            ((exit_request_block_t*)0x023FF680)->dldiDriverAddress = (u32)dldiPtr;
+        }
     }
     if (patchSpaceStart)
     {

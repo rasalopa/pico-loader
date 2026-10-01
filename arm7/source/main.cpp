@@ -114,10 +114,9 @@ static void handleSavePath()
 // on a DSi (running with 4MB RAM) writes it.
 #define EXIT_REQUEST_LOW_MIRROR ((exit_request_block_t*)0x023FF680)
 
-static bool isExitRequestBlockValid(const exit_request_block_t& block)
+static bool isExitRequestPathValid(const exit_request_block_t& block)
 {
-    if (block.requestMagic != EXIT_REQUEST_REQUEST_MAGIC ||
-        block.pathMagic != EXIT_REQUEST_PATH_MAGIC)
+    if (block.pathMagic != EXIT_REQUEST_PATH_MAGIC)
     {
         return false;
     }
@@ -127,6 +126,28 @@ static bool isExitRequestBlockValid(const exit_request_block_t& block)
         return false;
     }
     return block.pathChecksum == exit_request_calcChecksum(block.launcherPath);
+}
+
+static bool isExitRequestBlockValid(const exit_request_block_t& block)
+{
+    return block.requestMagic == EXIT_REQUEST_REQUEST_MAGIC && isExitRequestPathValid(block);
+}
+
+// Returns the copy of the dldi driver the last game kept for the launcher, or
+// nullptr. Only the launcher path has to check out: after the game's own soft
+// reset no exit was requested, but the copy is still where it was kept.
+static void* findCarriedDldiDriver()
+{
+    const exit_request_block_t* blocks[] = { &TWL_SHARED_MEMORY->exitRequest, EXIT_REQUEST_LOW_MIRROR };
+    for (const exit_request_block_t* block : blocks)
+    {
+        u32 address = block->dldiDriverAddress;
+        if (isExitRequestPathValid(*block) && address >= 0x02000000 && address < 0x03000000 && (address & 3) == 0)
+        {
+            return (void*)address;
+        }
+    }
+    return nullptr;
 }
 
 // Returns a pending valid exit request, or nullptr. Both copies are checked
@@ -219,6 +240,14 @@ extern "C" void loaderMain()
     memset(&gFatFs, 0, sizeof(gFatFs));
     bool multiboot = (gLoaderHeader.bootDrive & PLOAD_BOOT_DRIVE_MULTIBOOT_FLAG) != 0;
     gLoaderHeader.bootDrive &= ~PLOAD_BOOT_DRIVE_MULTIBOOT_FLAG;
+    bool retailSoftReset = !multiboot &&
+        ((nds_header_ntr_t*)TWL_SHARED_MEMORY->ntrSharedMem.romHeader)->arm7EntryAddress == (u32)gLoaderHeader.entryPoint;
+    if (retailSoftReset && gLoaderHeader.bootDrive == PLOAD_BOOT_DRIVE_DLDI && gLoaderHeader.dldiDriver == nullptr)
+    {
+        // A soft reset reloads Pico Loader without a dldi driver in its header.
+        // Use the copy the game kept, if any, so this boot can pass it on.
+        gLoaderHeader.dldiDriver = findCarriedDldiDriver();
+    }
     switch (gLoaderHeader.bootDrive)
     {
         case PLOAD_BOOT_DRIVE_DLDI:
@@ -262,7 +291,7 @@ extern "C" void loaderMain()
         memset(&TWL_SHARED_MEMORY->exitRequest, 0, sizeof(exit_request_block_t));
         sLoader.Load(BootMode::Multiboot);
     }
-    else if (((nds_header_ntr_t*)TWL_SHARED_MEMORY->ntrSharedMem.romHeader)->arm7EntryAddress == (u32)gLoaderHeader.entryPoint)
+    else if (retailSoftReset)
     {
         LOG_DEBUG("Retail soft reset detected\n");
         u32 originalArm7EntryAddress = ((nds_header_ntr_t*)TWL_SHARED_MEMORY->ntrSharedMem.cardRomHeader)->arm7EntryAddress;

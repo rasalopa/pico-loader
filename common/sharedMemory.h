@@ -75,6 +75,44 @@ static_assert(sizeof(shared_memory_ntr_t) == 0x800);
 #define NTR_SHARED_MEMORY      ((shared_memory_ntr_t*)0x027FF800)
 #define NTR_SHARED_MEMORY_SDK5 ((shared_memory_ntr_t*)0x02FFF800)
 
+#define EXIT_REQUEST_REQUEST_MAGIC  0x54495845 // 'EXIT'
+#define EXIT_REQUEST_PATH_MAGIC     0x58454C50 // 'PLEX'
+#define EXIT_REQUEST_COMBO_MAGIC    0x424D4F43 // 'COMB'
+#define EXIT_REQUEST_CHECKSUM_XOR   0x5A5A5A5A
+
+/// @brief Block used to request an in-game exit to the launcher.
+///        The loader fills pathMagic, pathChecksum and launcherPath at boot;
+///        the arm9 exit combo patch code only ever writes requestMagic, and the
+///        arm7 exit patch code only ever writes arm7Heartbeat.
+/// @note  The first four words deliberately share one cache line: the arm9 patch
+///        code invalidates that single line to read the heartbeat published by
+///        the arm7, which has no cache of its own.
+struct exit_request_block_t
+{
+    u32 requestMagic;
+    u32 pathMagic;
+    u32 pathChecksum;
+
+    /// @brief Set by the arm7 exit patch code once the user has held the combo.
+    ///        The arm7 owns the whole detection because its patch heap has room
+    ///        to spare, while the arm9 one is measured in a couple of hundred
+    ///        bytes. It also makes a missing arm9 patch harmless: nothing ever
+    ///        consumes this and the combo just does nothing.
+    u32 comboMagic;
+
+    char launcherPath[256];
+};
+
+static_assert(sizeof(exit_request_block_t) == 0x110);
+
+static inline u32 exit_request_calcChecksum(const char (&launcherPath)[256])
+{
+    u32 sum = 0;
+    for (u32 i = 0; i < sizeof(launcherPath); i++)
+        sum += (u8)launcherPath[i];
+    return sum ^ EXIT_REQUEST_CHECKSUM_XOR;
+}
+
 //0x02FFC000: 16KB
 struct shared_memory_twl_t
 {
@@ -89,7 +127,8 @@ struct shared_memory_twl_t
     u8 bootSrlPath[0x40];
     u8 twlRomHeader[0x1000];
     u8 sharedArena[0x680];
-    u8 gap3680[0x180];
+    exit_request_block_t exitRequest;
+    u8 gap3790[0x180 - sizeof(exit_request_block_t)];
     shared_memory_ntr_t ntrSharedMem;
 };
 

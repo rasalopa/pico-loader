@@ -83,9 +83,9 @@ static_assert(sizeof(shared_memory_ntr_t) == 0x800);
 /// @brief Block used to request an in-game exit to the launcher.
 ///        The loader fills pathMagic, pathChecksum and launcherPath at boot;
 ///        the arm9 exit combo patch code only ever writes requestMagic, and the
-///        arm7 exit patch code only ever writes arm7Heartbeat.
+///        arm7 exit patch code only ever writes comboMagic.
 /// @note  The first four words deliberately share one cache line: the arm9 patch
-///        code invalidates that single line to read the heartbeat published by
+///        code invalidates that single line to read the comboMagic published by
 ///        the arm7, which has no cache of its own.
 struct exit_request_block_t
 {

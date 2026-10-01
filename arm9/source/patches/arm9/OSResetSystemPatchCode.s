@@ -126,14 +126,6 @@ patch_osresetsystem_bootPicoLoader:
     ldrh r0, [r3, #2] // loader_info_t::picoLoaderBootDrive
     strh r0, [r5, #8] // pload_header7_t::bootDrive
 
-    // Hand the dldi driver over. The reloaded loader can still read the sd card
-    // through the platform patch code, but that is not something it can pass on
-    // to homebrew, so without this an exit to the launcher lands in a launcher
-    // with no filesystem at all. Zero when nothing was preserved, which is what
-    // the header already holds for a plain retail soft reset.
-    ldr r0, patch_osresetsystem_dldi_address
-    str r0, [r5, #4] // pload_header7_t::dldiDriver
-
     adr r0, regVramCntA
     ldmia r0, {r0, r4, r6, r7}
     // r0 = regVramCntA
@@ -209,10 +201,6 @@ vramCDSettings:
 
 .global patch_osresetsystem_cheats_address
 patch_osresetsystem_cheats_address:
-    .word 0
-
-.global patch_osresetsystem_dldi_address
-patch_osresetsystem_dldi_address:
     .word 0
 
 .pool

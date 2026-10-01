@@ -147,7 +147,6 @@ void OSResetSystemPatch::ApplyPatch(PatchContext& patchContext)
     }
 
     _cheatsPointer = patchCodePart2->GetCheatsPointerAtTarget();
-    _dldiPointer = patchCodePart2->GetDldiPointerAtTarget();
     _arm7ParkedEntryAtTarget = patchCode->GetArm7ParkedFunction();
 }
 

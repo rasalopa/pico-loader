@@ -268,17 +268,14 @@ Arm9Patcher::PatchResult Arm9Patcher::ApplyPatches(const LoaderPlatform* loaderP
     ic_invalidateAll();
 
     void** softResetCheatsPointer = nullptr;
-    void** softResetDldiPointer = nullptr;
     if (osResetSystemPatch != nullptr)
     {
         softResetCheatsPointer = osResetSystemPatch->GetCheatsPointerAtTarget();
-        softResetDldiPointer = osResetSystemPatch->GetDldiPointerAtTarget();
     }
 
     return PatchResult
     {
         .softResetCheatsPointer = softResetCheatsPointer,
-        .softResetDldiPointer = softResetDldiPointer,
         .exitComboInstalled = exitComboPatch != nullptr && exitComboPatch->IsInstalled()
     };
 }

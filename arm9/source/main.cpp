@@ -49,7 +49,6 @@ static u16 sIsCloneBootRom;
 static u16 sRunInDSiMode;
 static loader_info_t sLoaderInfo;
 static void** sSoftResetCheatsPointer = nullptr;
-static void** sSoftResetDldiPointer = nullptr;
 static u16 sExitComboInstalled; // not bool: .bss is in vram, where byte writes are lost on DS and DS Lite
 
 u16 gIsDsiMode;
@@ -158,7 +157,6 @@ static void handleApplyArm9PatchesCommand()
         sRunInDSiMode,
         &sLoaderInfo);
     sSoftResetCheatsPointer = result.softResetCheatsPointer;
-    sSoftResetDldiPointer = result.softResetDldiPointer;
     sExitComboInstalled = result.exitComboInstalled;
     ipc_sendWordDirect(1);
 }
@@ -173,10 +171,6 @@ static void handleApplyArm7PatchesCommand(u32 cheatsLength, u32 dldiLength)
     if (sSoftResetCheatsPointer != nullptr)
     {
         *sSoftResetCheatsPointer = cheats;
-    }
-    if (sSoftResetDldiPointer != nullptr)
-    {
-        *sSoftResetDldiPointer = dldi;
     }
     ipc_sendWordDirect((u32)patchSpaceStart);
     ipc_sendWordDirect((u32)cheats);

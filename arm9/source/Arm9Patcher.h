@@ -18,11 +18,6 @@ public:
         ///        This pointer must be set to keep cheats over soft resets.
         void** softResetCheatsPointer;
 
-        /// @brief Pointer to the dldi driver pointer used for soft reset.
-        ///        This pointer must be set for an in-game exit to hand the next
-        ///        rom a usable filesystem.
-        void** softResetDldiPointer;
-
         /// @brief \c true when the arm9 half of the in-game exit was installed.
         ///        The arm7 patcher only adds its half when this one is in.
         bool exitComboInstalled;

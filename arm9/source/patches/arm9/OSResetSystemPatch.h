@@ -21,13 +21,6 @@ public:
         return _cheatsPointer;
     }
 
-    /// @brief Returns the slot in the reboot code that holds the dldi driver to
-    ///        hand to the next rom, or nullptr when the code was not emitted.
-    void** GetDldiPointerAtTarget() const
-    {
-        return _dldiPointer;
-    }
-
     /// @brief Returns the entry to reboot into Pico Loader for a caller that has
     ///        already parked the arm7, or nullptr when the code was not emitted.
     const void* GetArm7ParkedEntryAtTarget() const
@@ -42,6 +35,5 @@ private:
     const loader_info_t* _loaderInfo;
     u16 _emitWithoutTarget;
     void** _cheatsPointer = nullptr;
-    void** _dldiPointer = nullptr;
     const void* _arm7ParkedEntryAtTarget = nullptr;
 };

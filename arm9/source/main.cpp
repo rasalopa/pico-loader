@@ -21,6 +21,7 @@
 #include "Arm9IoRegisterClearer.h"
 #include "Arm9Patcher.h"
 #include "Arm7Patcher.h"
+#include "patches/arm9/ExitComboPatch.h"
 #include "patches/platform/LoaderPlatform.h"
 #include "patches/platform/LoaderPlatformFactory.h"
 #include "arm9Clock.h"
@@ -49,7 +50,7 @@ static u16 sIsCloneBootRom;
 static u16 sRunInDSiMode;
 static loader_info_t sLoaderInfo;
 static void** sSoftResetCheatsPointer = nullptr;
-static u16 sExitComboInstalled; // not bool: .bss is in vram, where byte writes are lost on DS and DS Lite
+static ExitComboPatch* sExitComboPatch = nullptr;
 
 u16 gIsDsiMode;
 
@@ -157,7 +158,7 @@ static void handleApplyArm9PatchesCommand()
         sRunInDSiMode,
         &sLoaderInfo);
     sSoftResetCheatsPointer = result.softResetCheatsPointer;
-    sExitComboInstalled = result.exitComboInstalled;
+    sExitComboPatch = result.exitComboPatch;
     ipc_sendWordDirect(1);
 }
 
@@ -167,10 +168,19 @@ static void handleApplyArm7PatchesCommand(u32 cheatsLength, u32 dldiLength)
     char* bannerSavePath = nullptr;
     void* dldi = nullptr;
     void* patchSpaceStart = Arm7Patcher().ApplyPatches(
-        sLoaderPlatform, cheatsLength, cheats, bannerSavePath, dldiLength, dldi, sExitComboInstalled, sRunInDSiMode);
+        sLoaderPlatform, cheatsLength, cheats, bannerSavePath, dldiLength, dldi, sExitComboPatch != nullptr, sRunInDSiMode);
     if (sSoftResetCheatsPointer != nullptr)
     {
         *sSoftResetCheatsPointer = cheats;
+    }
+
+    // The arm7 half and the dldi copy only exist together. Without them the exit
+    // can never fire, so the arm9 half goes too. After the cheats pointer above:
+    // when the exit brought its own reboot code, that pointer is inside it.
+    if (sExitComboPatch != nullptr && dldi == nullptr)
+    {
+        sExitComboPatch->Deactivate();
+        dc_drainWriteBuffer();
     }
     ipc_sendWordDirect((u32)patchSpaceStart);
     ipc_sendWordDirect((u32)cheats);

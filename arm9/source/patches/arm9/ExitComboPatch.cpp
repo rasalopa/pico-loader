@@ -40,8 +40,9 @@ void ExitComboPatch::ApplyPatch(PatchContext& patchContext)
     if (emitRebootCode && patchContext.GetLoaderPlatform()->HasRomReads())
         return;
 
-    // One chunk for all of it. Unlike the mandatory patches this one gives up
-    // instead of halting when the heap is exhausted.
+    // One chunk for all of it, so it can be taken back as a whole. Unlike the
+    // mandatory patches this one gives up instead of halting when the heap is
+    // exhausted.
     u32 chunkSize = SECTION_SIZE(patch_exitcombo);
     if (emitRebootCode)
     {
@@ -53,8 +54,16 @@ void ExitComboPatch::ApplyPatch(PatchContext& patchContext)
         LOG_DEBUG("No patch heap space for the exit combo\n");
         return;
     }
+    _chunk = (u32*)patchContext.GetPatchHeap().Alloc(chunkSize);
+    _chunkSize = chunkSize;
+
+    // Before anything goes in: loader_info_t is copied over as soon as it is allocated.
+    _savedChunk = new u32[chunkSize / 4];
+    for (u32 i = 0; i < chunkSize / 4; i++)
+        _savedChunk[i] = _chunk[i];
+
     PatchHeap chunkHeap;
-    chunkHeap.AddFreeSpace(patchContext.GetPatchHeap().Alloc(chunkSize), chunkSize);
+    chunkHeap.AddFreeSpace(_chunk, chunkSize);
     if (emitRebootCode)
     {
         _osResetSystemPatch->EmitRebootCode(patchContext, chunkHeap);
@@ -81,9 +90,33 @@ void ExitComboPatch::ApplyPatch(PatchContext& patchContext)
         _dispatchTail[5]  // irq return address literal
     );
 
+    _savedTail[0] = _dispatchTail[0];
+    _savedTail[1] = _dispatchTail[1];
     _dispatchTail[0] = 0xE51FF004; // ldr pc,= address
     _dispatchTail[1] = (u32)exitComboPatchCode->GetExitComboFunction();
     _installed = 1;
 
     LOG_DEBUG("Exit combo enabled\n");
+}
+
+void ExitComboPatch::Deactivate()
+{
+    if (!_installed)
+        return;
+
+    // the hook only if it still jumps into the chunk
+    if (_dispatchTail[0] == 0xE51FF004 && _dispatchTail[1] - (u32)_chunk < _chunkSize)
+    {
+        _dispatchTail[0] = _savedTail[0];
+        _dispatchTail[1] = _savedTail[1];
+    }
+
+    for (u32 i = 0; i < _chunkSize / 4; i++)
+        _chunk[i] = _savedChunk[i];
+
+    delete[] _savedChunk;
+    _savedChunk = nullptr;
+    _installed = 0;
+
+    LOG_DEBUG("Exit combo taken back out\n");
 }

@@ -274,7 +274,7 @@ Arm9Patcher::PatchResult Arm9Patcher::ApplyPatches(const LoaderPlatform* loaderP
     return PatchResult
     {
         .softResetCheatsPointer = softResetCheatsPointer,
-        .exitComboInstalled = exitComboPatch != nullptr && exitComboPatch->IsInstalled()
+        .exitComboPatch = exitComboPatch != nullptr && exitComboPatch->IsInstalled() ? exitComboPatch : nullptr
     };
 }
 

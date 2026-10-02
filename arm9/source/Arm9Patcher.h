@@ -7,6 +7,7 @@ class LoaderPlatform;
 class PatchContext;
 class PatchCollection;
 class OverlayHookPatch;
+class ExitComboPatch;
 
 /// @brief Class for patching the arm9 of retail roms.
 class Arm9Patcher
@@ -18,9 +19,9 @@ public:
         ///        This pointer must be set to keep cheats over soft resets.
         void** softResetCheatsPointer;
 
-        /// @brief \c true when the arm9 half of the in-game exit was installed.
-        ///        The arm7 patcher only adds its half when this one is in.
-        bool exitComboInstalled;
+        /// @brief The arm9 half of the in-game exit, or \c nullptr when it was not
+        ///        installed. The arm7 patcher only adds its half when this one is in.
+        ExitComboPatch* exitComboPatch;
     };
 
     /// @brief Applies arm9 patches using the given \p loaderPlatform.

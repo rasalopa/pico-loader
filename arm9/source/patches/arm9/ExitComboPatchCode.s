@@ -77,8 +77,15 @@ patch_exitcombo_entry:
 
     ldr r3, patch_exitcombo_resetparam_address
     str r2, [r3]
-    ldr r3, patch_exitcombo_resetentry_address
-    bx r3 // patch_osresetsystem_entry_arm7Parked
+
+    // Into the reboot code past its reset of the game's arm7, which ours already
+    // parked, with the registers its entry would have loaded from its pool.
+    ldr r0, patch_exitcombo_resetpool_address
+    ldmia r0, {r0, r1, r3, r4, r5, r6, r7}
+    mov r9, r4 // readSdSectors
+    mov r10, r7 // bootPicoLoader
+    ldr r12, patch_exitcombo_bootloaderbinaries_address
+    bx r12 // thumb
 
 dispatch:
     // the dispatcher tail displaced by the hook
@@ -109,8 +116,12 @@ patch_exitcombo_block_address:
 patch_exitcombo_resetparam_address:
     .word 0
 
-.global patch_exitcombo_resetentry_address
-patch_exitcombo_resetentry_address:
+.global patch_exitcombo_resetpool_address
+patch_exitcombo_resetpool_address:
+    .word 0
+
+.global patch_exitcombo_bootloaderbinaries_address
+patch_exitcombo_bootloaderbinaries_address:
     .word 0
 
 .global patch_exitcombo_table_address

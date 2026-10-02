@@ -234,9 +234,7 @@ Arm9Patcher::PatchResult Arm9Patcher::ApplyPatches(const LoaderPlatform* loaderP
         }
 
         patchCollection.AddPatch(new CardiReadRomIdCorePatch());
-        // The exit combo needs the reboot code even in games that never call
-        // OS_ResetSystem, which is most of them.
-        osResetSystemPatch = new OSResetSystemPatch(loaderInfo, runInDSiMode, exitComboEnabled);
+        osResetSystemPatch = new OSResetSystemPatch(loaderInfo, runInDSiMode);
         patchCollection.AddPatch(osResetSystemPatch);
         AddGamePatches(patchCollection, romHeader->gameCode, apListEntry);
 

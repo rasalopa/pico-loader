@@ -3,22 +3,6 @@
 .syntax unified
 
 .thumb
-
-// Alternate entry for the in-game exit combo. The exit combo brings its own
-// resident arm7 code, which has already quiesced that cpu and is parked waiting,
-// so both the reset command to the game's arm7 and the wait for its answer are
-// skipped. Everything from here on (reloading Pico Loader off the sd card and
-// handing both cpus over) is shared with the sdk reset path below.
-.global patch_osresetsystem_entry_arm7Parked
-.type patch_osresetsystem_entry_arm7Parked, %function
-patch_osresetsystem_entry_arm7Parked:
-    adr r0, regIpcSync
-    ldmia r0, {r0, r1, r3, r4, r5, r6, r7}
-    mov r9, r4
-    mov r10, r7
-
-    b bootLoaderBinaries
-
 .global patch_osresetsystem_entry
 .type patch_osresetsystem_entry, %function
 patch_osresetsystem_entry:
@@ -48,7 +32,12 @@ patch_osresetsystem_entry_jump_to_twl_arm7_sync:
     cmp r7, #1
     bne 2b // while ipc sync from arm7 is not 1
 
-bootLoaderBinaries:
+// Where the in-game exit combo comes in: its own arm7 code has already parked
+// that cpu, so the reset command and the wait above are skipped. It loads the
+// pool into the same registers first.
+.global patch_osresetsystem_bootLoaderBinaries
+.type patch_osresetsystem_bootLoaderBinaries, %function
+patch_osresetsystem_bootLoaderBinaries:
     adds r0, #(0x04000240 - 0x04000180)
 
     // map vram ABCD to LCDC
@@ -90,6 +79,8 @@ loadData:
 
 .balign 4
 
+.global patch_osresetsystem_pool
+patch_osresetsystem_pool:
 regIpcSync:
     .word 0x04000180
 

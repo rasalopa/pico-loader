@@ -1,6 +1,8 @@
 #include "common.h"
 #include "patches/PatchContext.h"
+#include "patches/platform/LoaderPlatform.h"
 #include "sharedMemory.h"
+#include "OSResetSystemPatchCode.h"
 #include "ExitComboPatchCode.h"
 #include "ExitComboPatch.h"
 
@@ -31,20 +33,33 @@ void ExitComboPatch::ApplyPatch(PatchContext& patchContext)
     if (!_dispatchTail)
         return;
 
-    // Reuses the reboot code emitted by OSResetSystemPatch, entering it at the
-    // point where the arm7 is already parked: our own arm7 patch does that job,
-    // so the game does not need an OS_ResetSystem of its own.
-    const void* resetEntry = _osResetSystemPatch->GetArm7ParkedEntryAtTarget();
-    if (!resetEntry)
+    // A game without an OS_ResetSystem of its own gets the reboot code from here.
+    // That code calls the platform sd read code, which the card read patches have
+    // already put in, except on a platform that reads the rom some other way.
+    bool emitRebootCode = !_osResetSystemPatch->HasTarget();
+    if (emitRebootCode && patchContext.GetLoaderPlatform()->HasRomReads())
         return;
 
-    // unlike the mandatory patches this one gives up instead of halting
-    // when the heap is exhausted
-    if (!patchContext.GetPatchHeap().CanAlloc(SECTION_SIZE(patch_exitcombo)))
+    // One chunk for all of it. Unlike the mandatory patches this one gives up
+    // instead of halting when the heap is exhausted.
+    u32 chunkSize = SECTION_SIZE(patch_exitcombo);
+    if (emitRebootCode)
+    {
+        chunkSize += sizeof(loader_info_t)
+            + SECTION_SIZE(patch_osresetsystem) + SECTION_SIZE(patch_osresetsystem_boot);
+    }
+    if (!patchContext.GetPatchHeap().CanAlloc(chunkSize))
     {
         LOG_DEBUG("No patch heap space for the exit combo\n");
         return;
     }
+    PatchHeap chunkHeap;
+    chunkHeap.AddFreeSpace(patchContext.GetPatchHeap().Alloc(chunkSize), chunkSize);
+    if (emitRebootCode)
+    {
+        _osResetSystemPatch->EmitRebootCode(patchContext, chunkHeap);
+    }
+    auto rebootCode = _osResetSystemPatch->GetRebootCode();
 
     u32 blockAddress = (u32)&TWL_SHARED_MEMORY->exitRequest;
     u32 resetParamAddress = (u32)&TWL_SHARED_MEMORY->ntrSharedMem.resetParam;
@@ -57,10 +72,11 @@ void ExitComboPatch::ApplyPatch(PatchContext& patchContext)
 
     auto exitComboPatchCode = patchContext.GetPatchCodeCollection().AddUniquePatchCode<ExitComboPatchCode>
     (
-        patchContext.GetPatchHeap(),
+        chunkHeap,
         blockAddress,
         resetParamAddress,
-        (u32)resetEntry,
+        (u32)rebootCode->GetPoolAtTarget(),
+        (u32)rebootCode->GetBootLoaderBinariesFunction(),
         _dispatchTail[4], // irq table address literal
         _dispatchTail[5]  // irq return address literal
     );

@@ -2,30 +2,42 @@
 #include "../Patch.h"
 #include "LoaderInfo.h"
 
+class PatchHeap;
+class OSResetSystemPatchCode;
+
 /// @brief Arm9 patch to make OS_ResetSystem reboot into Pico Loader.
 class OSResetSystemPatch : public Patch
 {
 public:
-    /// @param emitWithoutTarget Emit the reboot code even when the game has no
-    ///        OS_ResetSystem to hook. The in-game exit combo needs the code in
-    ///        that case, and plenty of games (Mario Kart DS, Metal Slug 7, ...)
-    ///        never call OS_ResetSystem at all.
-    OSResetSystemPatch(const loader_info_t* loaderInfo, bool runInDSiMode, bool emitWithoutTarget)
-        : _runInDSiMode(runInDSiMode), _loaderInfo(loaderInfo), _emitWithoutTarget(emitWithoutTarget) { }
+    OSResetSystemPatch(const loader_info_t* loaderInfo, bool runInDSiMode)
+        : _runInDSiMode(runInDSiMode), _loaderInfo(loaderInfo) { }
 
     bool FindPatchTarget(PatchContext& patchContext) override;
     void ApplyPatch(PatchContext& patchContext) override;
 
+    /// @brief \c true when the game has an OS_ResetSystem, so \see ApplyPatch emits the reboot code.
+    bool HasTarget() const
+    {
+        return _osResetSystem != nullptr;
+    }
+
+    /// @brief Emits the code that reboots into Pico Loader, without hooking anything.
+    ///        \see ApplyPatch uses it for the game's own OS_ResetSystem, and the
+    ///        in-game exit for a game that has none.
+    /// @param patchContext The patch context to use.
+    /// @param patchHeap The heap to take loader_info_t and both code sections from,
+    ///        and the platform sd read code when the collection does not have it yet.
+    void EmitRebootCode(PatchContext& patchContext, PatchHeap& patchHeap);
+
+    /// @brief Returns the reboot code, or \c nullptr when it was not emitted.
+    const OSResetSystemPatchCode* GetRebootCode() const
+    {
+        return _rebootCode;
+    }
+
     void** GetCheatsPointerAtTarget() const
     {
         return _cheatsPointer;
-    }
-
-    /// @brief Returns the entry to reboot into Pico Loader for a caller that has
-    ///        already parked the arm7, or nullptr when the code was not emitted.
-    const void* GetArm7ParkedEntryAtTarget() const
-    {
-        return _arm7ParkedEntryAtTarget;
     }
 
 private:
@@ -33,7 +45,6 @@ private:
     u16 _hybrid = false;
     u16 _runInDSiMode;
     const loader_info_t* _loaderInfo;
-    u16 _emitWithoutTarget;
     void** _cheatsPointer = nullptr;
-    const void* _arm7ParkedEntryAtTarget = nullptr;
+    const OSResetSystemPatchCode* _rebootCode = nullptr;
 };

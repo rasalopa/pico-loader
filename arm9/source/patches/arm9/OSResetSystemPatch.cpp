@@ -78,75 +78,58 @@ bool OSResetSystemPatch::FindPatchTarget(PatchContext& patchContext)
     return true;
 }
 
-// loader_info_t plus both code sections, plus room for the platform sd read code.
-// That code is normally already in the collection because the card read patches
-// share it, but they only allocate it when their own pattern matched, so it has
-// to be covered here: PatchHeap::Alloc halts the console when it runs out, and
-// this patch is the one place that allocates for a game which needs none of it.
-#define RESET_CODE_HEAP_SPACE   0x240
-
 void OSResetSystemPatch::ApplyPatch(PatchContext& patchContext)
 {
-    if (!_osResetSystem && !_emitWithoutTarget)
+    if (!_osResetSystem)
     {
-        return;
-    }
-
-    // Emitting this code for a game that has no OS_ResetSystem is allocation that
-    // did not happen before, so it must never starve a mandatory patch: give up
-    // quietly when the heap is tight instead of halting inside PatchHeap::Alloc.
-    if (!_osResetSystem && !patchContext.GetPatchHeap().CanAlloc(RESET_CODE_HEAP_SPACE))
-    {
-        LOG_DEBUG("No patch heap space for the reboot code\n");
         return;
     }
 
     u32 offset;
     if (patchContext.GetSdkVersion().IsTwlSdk())
     {
-        patch_osresetsystem_arm7Entry_address = 0x02FFFE34;
-        if (_hybrid)
-        {
-            offset = 0x80;
-            if (!_runInDSiMode)
-            {
-                patch_osresetsystem_entry_jump_to_twl_arm7_sync = THUMB_NOP;
-            }
-        }
-        else
-        {
-            offset = 0x44;
-            patch_osresetsystem_entry_jump_to_twl_arm7_sync = THUMB_NOP;
-        }
+        offset = _hybrid ? 0x80 : 0x44;
     }
     else
     {
         offset = 0xC;
+    }
+
+    EmitRebootCode(patchContext, patchContext.GetPatchHeap());
+
+    *(u32*)((u8*)_osResetSystem + offset) = 0xE51FF004;
+    *(u32*)((u8*)_osResetSystem + offset + 4) = (u32)_rebootCode->GetOSResetSystemFunction();
+}
+
+void OSResetSystemPatch::EmitRebootCode(PatchContext& patchContext, PatchHeap& patchHeap)
+{
+    if (patchContext.GetSdkVersion().IsTwlSdk())
+    {
+        patch_osresetsystem_arm7Entry_address = 0x02FFFE34;
+    }
+
+    // only a hybrid rom running in DSi mode syncs with the twl arm7 first
+    if (!patchContext.GetSdkVersion().IsTwlSdk() || !_hybrid || !_runInDSiMode)
+    {
         patch_osresetsystem_entry_jump_to_twl_arm7_sync = THUMB_NOP;
     }
 
-    auto loaderInfoTarget = (loader_info_t*)patchContext.GetPatchHeap().Alloc(sizeof(loader_info_t));
+    auto loaderInfoTarget = (loader_info_t*)patchHeap.Alloc(sizeof(loader_info_t));
     memcpy(loaderInfoTarget, _loaderInfo, sizeof(loader_info_t));
 
     auto sdReadPatchCode = patchContext.GetLoaderPlatform()->CreateSdReadPatchCode(
-        patchContext.GetPatchCodeCollection(), patchContext.GetPatchHeap());
+        patchContext.GetPatchCodeCollection(), patchHeap);
     auto patchCodePart2 = patchContext.GetPatchCodeCollection().AddUniquePatchCode<OSResetSystemPart2PatchCode>(
-        patchContext.GetPatchHeap());
+        patchHeap);
     auto patchCode = patchContext.GetPatchCodeCollection().AddUniquePatchCode<OSResetSystemPatchCode>
     (
-        patchContext.GetPatchHeap(),
+        patchHeap,
         loaderInfoTarget,
         sdReadPatchCode,
         patchCodePart2
     );
 
-    if (_osResetSystem)
-    {
-        *(u32*)((u8*)_osResetSystem + offset) = 0xE51FF004;
-        *(u32*)((u8*)_osResetSystem + offset + 4) = (u32)patchCode->GetOSResetSystemFunction();
-    }
-
     _cheatsPointer = patchCodePart2->GetCheatsPointerAtTarget();
-    _arm7ParkedEntryAtTarget = patchCode->GetArm7ParkedFunction();
+    _rebootCode = patchCode;
 }
 

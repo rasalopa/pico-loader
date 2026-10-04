@@ -78,6 +78,8 @@ static_assert(sizeof(shared_memory_ntr_t) == 0x800);
 #define EXIT_REQUEST_REQUEST_MAGIC  0x54495845 // 'EXIT'
 #define EXIT_REQUEST_PATH_MAGIC     0x58454C50 // 'PLEX'
 #define EXIT_REQUEST_COMBO_MAGIC    0x424D4F43 // 'COMB'
+#define EXIT_REQUEST_PARK_MAGIC     0x4B524150 // 'PARK'
+#define EXIT_REQUEST_CANCEL_MAGIC   (EXIT_REQUEST_PARK_MAGIC + 1)
 #define EXIT_REQUEST_CHECKSUM_XOR   0x5A5A5A5A
 
 /// @brief Block used to request an in-game exit to the launcher.
@@ -93,11 +95,13 @@ struct exit_request_block_t
     u32 pathMagic;
     u32 pathChecksum;
 
-    /// @brief Set by the arm7 exit patch code once the user has held the combo.
-    ///        The arm7 owns the whole detection because its patch heap has room
-    ///        to spare, while the arm9 one is measured in a couple of hundred
-    ///        bytes. It also makes a missing arm9 patch harmless: nothing ever
-    ///        consumes this and the combo just does nothing.
+    /// @brief The arm7 side of the exit. COMB once the user has held the combo,
+    ///        then PARK once the arm7 has stopped for the reboot, or CANCEL when
+    ///        it could not stop safely and the game goes on. The arm7 owns the
+    ///        whole detection because its patch heap has room to spare, while the
+    ///        arm9 one is measured in a couple of hundred bytes. It also makes a
+    ///        missing arm9 patch harmless: nothing ever consumes this and the
+    ///        combo just does nothing.
     u32 comboMagic;
 
     char launcherPath[256];

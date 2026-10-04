@@ -6,6 +6,9 @@
 #include "ExitComboPatchCode.h"
 #include "ExitComboPatch.h"
 
+// ExitComboPatchCode.s finds the sdk card lock word as resetParam + 0x3C0.
+static_assert(offsetof(shared_memory_ntr_t, slot1Lock) - offsetof(shared_memory_ntr_t, resetParam) == 0x3C0);
+
 // Tail of the SDK IRQ dispatcher: ldr r1, [pc, #8]; ldr r0, [r1, r0, lsl #2];
 // ldr lr, [pc, #4]; bx r0. The irq table address and the irq return address
 // literals follow directly after these four instructions. This four-word

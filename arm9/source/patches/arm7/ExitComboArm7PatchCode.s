@@ -22,7 +22,9 @@ patch_exitcombo_arm7_entry:
 
     ldr r1, patch_exitcombo_arm7_block_address
 
-    // has the arm9 taken the request and asked us to get out of the way?
+    // Has the arm9 taken the request and asked us to get out of the way? This
+    // comes first, whatever this side was doing: the arm9 is waiting with its
+    // irqs off and only an answer from here lets it go on.
     ldr r2, [r1] // exit_request_block_t::requestMagic
     ldr r3, requestMagic
     cmp r2, r3
@@ -34,11 +36,29 @@ patch_exitcombo_arm7_entry:
     cmp r2, r3
     bne dispatch
 
+    adr r12, holdCounter
+    ldr r2, [r1, #0x0C] // exit_request_block_t::comboMagic
+    ldr r3, comboMagic
+    cmp r2, r3
+    bne notPublished
+
+    // The arm9 only takes the request between card operations. Give up after
+    // about five seconds without a gap, and the combo has to be held again.
+    ldr r2, [r12, #4] // publishedFrames
+    add r2, r2, #1
+    str r2, [r12, #4]
+    cmp r2, #300
+    blo dispatch
+    mov r2, #0
+    str r2, [r1, #0x0C] // exit_request_block_t::comboMagic
+    str r2, [r12]
+    b dispatch
+
+notPublished:
     ldr r2, regKeyInput
     ldr r2, [r2] // masked below, so the keycnt half is discarded
     ldr r3, comboMask
     ands r2, r2, r3 // keys are active low, 0 = whole combo held
-    adr r12, holdCounter
     bne notHeld
 
     ldr r2, [r12]
@@ -49,6 +69,8 @@ patch_exitcombo_arm7_entry:
 
     // ask for the exit and carry on: quiescing happens once the arm9 answers,
     // so a game running without an arm9 patch is never left with a dead arm7
+    mov r2, #0
+    str r2, [r12, #4] // publishedFrames
     ldr r2, comboMagic
     str r2, [r1, #0x0C] // exit_request_block_t::comboMagic
     b dispatch
@@ -75,11 +97,14 @@ park:
     strh r2, [r3]
 
     // Tell the arm9 we are out of the way, wait for it to finish reloading Pico
-    // Loader, then release it and jump. Same three step sync the sdk reset
-    // handler speaks, so the arm9 side of the reboot code is unchanged.
+    // Loader, then release it and jump. The reboot code waits on the same three
+    // step sync the sdk reset handler speaks, so it is unchanged. The arm9 stub
+    // itself waits on PARK instead: it cannot rely on the sync the game left.
     ldr r3, regIpcSync
     mov r2, #1
     strb r2, [r3, #1] // sync out = 1, parked
+    ldr r2, parkMagic
+    str r2, [r1, #0x0C] // exit_request_block_t::comboMagic
 1:
     ldrb r2, [r3]
     cmp r2, #1
@@ -134,7 +159,13 @@ pathMagic:
 comboMagic:
     .word 0x424D4F43 // EXIT_REQUEST_COMBO_MAGIC
 
+parkMagic:
+    .word 0x4B524150 // EXIT_REQUEST_PARK_MAGIC
+
 holdCounter:
+    .word 0
+
+publishedFrames:
     .word 0
 
 .global patch_exitcombo_arm7_block_address

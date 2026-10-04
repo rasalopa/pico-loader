@@ -2,6 +2,9 @@
 #include "patches/PatchContext.h"
 #include "sharedMemory.h"
 #include "ExitComboArm7PatchCode.h"
+#include "ReadSavePatchCode.h"
+#include "WriteSavePatchCode.h"
+#include "VerifySavePatchCode.h"
 #include "ExitComboArm7Patch.h"
 
 // Tail of the SDK irq dispatcher, the same four word sequence used on the arm9
@@ -47,10 +50,18 @@ void ExitComboArm7Patch::ApplyPatch(PatchContext& patchContext)
         blockAddress -= 0x800000;
     }
 
+    // The save code reaches the sd card through these, set by the save patch applied
+    // before this one, or 0 when the game got none. All three save routines use the
+    // same read.
+    u32 sdRead = readsave_sdread_asm_address;
+    u32 sdWrite = writesave_sdwrite_asm_address;
+
     auto exitComboPatchCode = patchContext.GetPatchCodeCollection().AddUniquePatchCode<ExitComboArm7PatchCode>
     (
         patchContext.GetPatchHeap(),
         blockAddress,
+        sdRead,
+        sdWrite,
         _dispatchTail[4], // irq table address literal
         _dispatchTail[5]  // irq return address literal
     );
@@ -58,6 +69,24 @@ void ExitComboArm7Patch::ApplyPatch(PatchContext& patchContext)
     _dispatchTail[0] = 0xE51FF004; // ldr pc,= address
     _dispatchTail[1] = (u32)exitComboPatchCode->GetExitComboFunction();
     _installed = 1;
+
+    // Route the save code through the stub, so it knows when a save is running.
+    // These addresses are template values that are only copied once every patch
+    // has been applied, so changing them here still reaches the copy.
+    if (sdRead)
+    {
+        u32 readWrapper = (u32)exitComboPatchCode->GetSdReadFunction();
+        if (readsave_sdread_asm_address == sdRead)
+            readsave_sdread_asm_address = readWrapper;
+        if (writesave_sdread_asm_address == sdRead)
+            writesave_sdread_asm_address = readWrapper;
+        if (verifysave_sdread_asm_address == sdRead)
+            verifysave_sdread_asm_address = readWrapper;
+    }
+    if (sdWrite)
+    {
+        writesave_sdwrite_asm_address = (u32)exitComboPatchCode->GetSdWriteFunction();
+    }
 
     LOG_DEBUG("Arm7 exit combo enabled\n");
 }

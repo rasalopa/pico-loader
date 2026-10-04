@@ -20,41 +20,84 @@ patch_exitcombo_arm7_entry:
     cmp r0, #0 // irq index 0 = vblank
     bne dispatch
 
+    // the state words below: hold counter, request age and the save state the
+    // wrappers at the end keep; the save cooldown loses a frame every vblank
+    adr r12, holdCounter
+    ldr r2, [r12, #16] // saveCooldown
+    subs r2, r2, #1
+    strhs r2, [r12, #16]
+
     ldr r1, patch_exitcombo_arm7_block_address
 
     // Has the arm9 taken the request and asked us to get out of the way? This
     // comes first, whatever this side was doing: the arm9 is waiting with its
-    // irqs off and only an answer from here lets it go on.
+    // irqs off and only an answer from here lets it go on. A save since the
+    // request went out, or one still settling, means not now: cancel, and the
+    // request goes out again once the saves are quiet.
     ldr r2, [r1] // exit_request_block_t::requestMagic
     ldr r3, requestMagic
     cmp r2, r3
+    bne notTaken
+    ldr r2, [r12, #8] // saveBusy
+    ldr r3, [r12, #12] // savedSinceRequest
+    orr r2, r2, r3
+    ldr r3, [r12, #16] // saveCooldown
+    orrs r2, r2, r3
     beq park
+    ldr r2, parkMagic
+    add r2, r2, #1 // EXIT_REQUEST_CANCEL_MAGIC
+    str r2, [r1, #0x0C] // exit_request_block_t::comboMagic
+    b dispatch
 
+notTaken:
     // only armed when the loader stored a valid launcher path
     ldr r2, [r1, #4] // exit_request_block_t::pathMagic
     ldr r3, pathMagic
     cmp r2, r3
     bne dispatch
 
-    adr r12, holdCounter
-    ldr r2, [r1, #0x0C] // exit_request_block_t::comboMagic
-    ldr r3, comboMagic
-    cmp r2, r3
-    bne notPublished
+    ldr r2, [r12, #4] // requestFrames, 0 while there is no request
+    cmp r2, #0
+    beq noRequest
 
-    // The arm9 only takes the request between card operations. Give up after
-    // about five seconds without a gap, and the combo has to be held again.
-    ldr r2, [r12, #4] // publishedFrames
+    // The request only goes out between saves, and the arm9 only takes it
+    // between card operations. Give up after about five seconds without a gap,
+    // and the combo has to be held again.
     add r2, r2, #1
     str r2, [r12, #4]
     cmp r2, #300
-    blo dispatch
-    mov r2, #0
-    str r2, [r1, #0x0C] // exit_request_block_t::comboMagic
-    str r2, [r12]
+    bhs dropRequest
+
+    ldr r2, [r1, #0x0C] // exit_request_block_t::comboMagic
+    ldr r3, comboMagic
+    cmp r2, r3
+    bne notOut
+    // out, but a save has started since: take it back until the saves are quiet
+    ldr r2, [r12, #12] // savedSinceRequest
+    cmp r2, #0
+    movne r2, #0
+    strne r2, [r1, #0x0C] // exit_request_block_t::comboMagic
     b dispatch
 
-notPublished:
+notOut:
+    // send it out once no save has run for a while
+    ldr r2, [r12, #8] // saveBusy
+    ldr r3, [r12, #16] // saveCooldown
+    orrs r2, r2, r3
+    bne dispatch
+    str r2, [r12, #12] // savedSinceRequest
+    ldr r2, comboMagic
+    str r2, [r1, #0x0C] // exit_request_block_t::comboMagic
+    b dispatch
+
+dropRequest:
+    mov r2, #0
+    str r2, [r12, #4] // requestFrames
+    str r2, [r12] // holdCounter
+    str r2, [r1, #0x0C] // exit_request_block_t::comboMagic
+    b dispatch
+
+noRequest:
     ldr r2, regKeyInput
     ldr r2, [r2] // masked below, so the keycnt half is discarded
     ldr r3, comboMask
@@ -69,10 +112,8 @@ notPublished:
 
     // ask for the exit and carry on: quiescing happens once the arm9 answers,
     // so a game running without an arm9 patch is never left with a dead arm7
-    mov r2, #0
-    str r2, [r12, #4] // publishedFrames
-    ldr r2, comboMagic
-    str r2, [r1, #0x0C] // exit_request_block_t::comboMagic
+    mov r2, #1
+    str r2, [r12, #4] // requestFrames, it goes out on a quiet vblank
     b dispatch
 
 notHeld:
@@ -130,6 +171,41 @@ dispatch:
     ldr lr, patch_exitcombo_arm7_return_address
     bx r0
 
+// The loader's save code reaches the sd card through these two instead of the
+// platform routines, in the games that get the exit. They mark a save as running
+// and as having happened since the request went out, and on the way back start
+// the cooldown before clearing the running mark, so a vblank in between still
+// sees the save. Thumb, because the platform routines return with a thumb pop.
+.thumb
+.global patch_exitcombo_arm7_sdread
+.type patch_exitcombo_arm7_sdread, %function
+patch_exitcombo_arm7_sdread:
+    ldr r3, patch_exitcombo_arm7_sdread_address
+    b saveCall
+
+.global patch_exitcombo_arm7_sdwrite
+.type patch_exitcombo_arm7_sdwrite, %function
+patch_exitcombo_arm7_sdwrite:
+    ldr r3, patch_exitcombo_arm7_sdwrite_address
+saveCall:
+    push {r4, r5, lr}
+    adr r4, saveBusy
+    movs r5, #1
+    str r5, [r4] // saveBusy
+    str r5, [r4, #4] // savedSinceRequest
+    bl callR3
+    adr r4, saveBusy
+    movs r5, #10
+    str r5, [r4, #8] // saveCooldown, a sixth of a second
+    movs r5, #0
+    str r5, [r4] // saveBusy
+    pop {r4, r5}
+    pop {r3}
+    bx r3
+
+callR3:
+    bx r3
+
 .balign 4
 
 regKeyInput:
@@ -165,7 +241,16 @@ parkMagic:
 holdCounter:
     .word 0
 
-publishedFrames:
+requestFrames:
+    .word 0
+
+saveBusy:
+    .word 0
+
+savedSinceRequest:
+    .word 0
+
+saveCooldown:
     .word 0
 
 .global patch_exitcombo_arm7_block_address
@@ -178,6 +263,14 @@ patch_exitcombo_arm7_table_address:
 
 .global patch_exitcombo_arm7_return_address
 patch_exitcombo_arm7_return_address:
+    .word 0
+
+.global patch_exitcombo_arm7_sdread_address
+patch_exitcombo_arm7_sdread_address:
+    .word 0
+
+.global patch_exitcombo_arm7_sdwrite_address
+patch_exitcombo_arm7_sdwrite_address:
     .word 0
 
 .pool

@@ -49,6 +49,25 @@ static const u32 sMiiUncompressBackwardPatternOld2[] = { 0xE3500000, 0x0A00002B,
 static const u32 sMiiUncompressBackwardPattern[] = { 0xE3500000, 0x0A000027, 0xE92D00F0, 0xE9100006 };
 static const u32 sMiiUncompressBackwardPatternHybrid[] = { 0xE3500000, 0x0A000029, 0xE92D01F0, 0xE9100006 };
 
+/// @brief The games AddGamePatches gives a NAND save. They save through their own
+///        routines on the arm9, which the in-game exit cannot tell apart from play,
+///        so it could cut one of their saves in half.
+static bool hasNandSave(u32 gameCode)
+{
+    switch (gameCode)
+    {
+        case GAMECODE("UORE"):
+        case GAMECODE("UORP"):
+        case GAMECODE("UORJ"):
+        case GAMECODE("UXBP"):
+        case GAMECODE("USKV"):
+        case GAMECODE("UGDA"):
+            return true;
+        default:
+            return false;
+    }
+}
+
 Arm9Patcher::PatchResult Arm9Patcher::ApplyPatches(const LoaderPlatform* loaderPlatform, const ApListEntry* apListEntry,
     bool isCloneBootRom, bool runInDSiMode, const loader_info_t* loaderInfo) const
 {
@@ -206,11 +225,13 @@ Arm9Patcher::PatchResult Arm9Patcher::ApplyPatches(const LoaderPlatform* loaderP
 
         // The in-game exit covers DS mode retail games booted through dldi with a
         // launcher to go back to. Left out: DSi mode, DSi-enhanced roms, DSiWare
-        // (it lacks the card patches the reboot code builds on), and the
-        // downloader, whose patch heap at 0x023FF160 overlaps the exit request block.
+        // (it lacks the card patches the reboot code builds on), the downloader,
+        // whose patch heap at 0x023FF160 overlaps the exit request block, and the
+        // games with a NAND save.
         exitComboEnabled = !runInDSiMode && !isPokemonDownloader
             && romHeader->unitCode == 0
             && !(sdkVersion.IsTwlSdk() && twlRomHeader->IsDsiWare())
+            && !hasNandSave(romHeader->gameCode)
             && loaderInfo->picoLoaderBootDrive == PLOAD_BOOT_DRIVE_DLDI
             && TWL_SHARED_MEMORY->exitRequest.pathMagic == EXIT_REQUEST_PATH_MAGIC;
 

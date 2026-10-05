@@ -77,14 +77,23 @@ void ExitComboPatch::ApplyPatch(PatchContext& patchContext)
         chunkSize += sizeof(loader_info_t)
             + SECTION_SIZE(patch_osresetsystem) + SECTION_SIZE(patch_osresetsystem_boot);
     }
-    if (!patchContext.GetPatchHeap().CanAlloc(chunkSize))
+    // When the patch heap has no room left, the chunk goes in a block taken from the
+    // top of the game's main heap instead, and the game is told its heap ends there.
+    u32 block = 0;
+    if (patchContext.GetPatchHeap().CanAlloc(chunkSize))
     {
-        // only looked up for now, the block is not taken yet
-        u32 block = FindBlockUnderArenaHi(chunkSize);
-        LOG_DEBUG("No patch heap space for the exit combo, room under the arena hi at 0x%x\n", block);
-        return;
+        _chunk = (u32*)patchContext.GetPatchHeap().Alloc(chunkSize);
     }
-    _chunk = (u32*)patchContext.GetPatchHeap().Alloc(chunkSize);
+    else
+    {
+        block = FindBlockUnderArenaHi(chunkSize);
+        if (!block)
+        {
+            LOG_DEBUG("No room for the exit combo\n");
+            return;
+        }
+        _chunk = (u32*)block;
+    }
     _chunkSize = chunkSize;
 
     // Before anything goes in: loader_info_t is copied over as soon as it is allocated.
@@ -124,6 +133,11 @@ void ExitComboPatch::ApplyPatch(PatchContext& patchContext)
     _savedTail[1] = _dispatchTail[1];
     _dispatchTail[0] = 0xE51FF004; // ldr pc,= address
     _dispatchTail[1] = (u32)exitComboPatchCode->GetExitComboFunction();
+    if (block)
+    {
+        _mainMemoryArenaHi.Lower(block);
+        LOG_DEBUG("Main memory arena hi lowered to 0x%x\n", block);
+    }
     _installed = 1;
 
     LOG_DEBUG("Exit combo enabled\n");
@@ -131,9 +145,11 @@ void ExitComboPatch::ApplyPatch(PatchContext& patchContext)
 
 u32 ExitComboPatch::FindBlockUnderArenaHi(u32 chunkSize)
 {
-    if (keepsOwnHeapTop(_romHeader->gameCode))
+    // A clone boot game sends the start of its arm9 to download play clients from
+    // memory, and a lowered arena hi there could break that.
+    if (_isCloneBootRom || keepsOwnHeapTop(_romHeader->gameCode))
         return 0;
-    if (!_mainMemoryArenaHi.Find((const u32*)_romHeader->arm9LoadAddress, _arm9Size))
+    if (!_mainMemoryArenaHi.Find((u32*)_romHeader->arm9LoadAddress, _arm9Size))
         return 0;
 
     u32 blockSize = (chunkSize + 31) & ~31;
@@ -164,6 +180,7 @@ void ExitComboPatch::Deactivate()
         _dispatchTail[0] = _savedTail[0];
         _dispatchTail[1] = _savedTail[1];
     }
+    _mainMemoryArenaHi.Restore();
 
     for (u32 i = 0; i < _chunkSize / 4; i++)
         _chunk[i] = _savedChunk[i];

@@ -11,14 +11,22 @@ public:
     /// @param image The decompressed arm9.
     /// @param imageSize The size of \p image in bytes.
     /// @return True when the literal was found.
-    bool Find(const u32* image, u32 imageSize);
+    bool Find(u32* image, u32 imageSize);
 
     /// @brief The value the game would use, once \see Find returned true.
     u32 GetOriginal() const { return _original; }
 
+    /// @brief Makes the game's main memory arena end at \p arenaHi instead.
+    void Lower(u32 arenaHi);
+
+    /// @brief Puts the original value back, unless something else wrote the literal
+    ///        since \see Lower did.
+    void Restore();
+
 private:
     // 32-bit fields only: this lives in vram, where byte writes are lost on DS and DS Lite.
-    const u32* _literal = nullptr;
+    u32* _literal = nullptr;
     u32 _searched = 0;
     u32 _original = 0;
+    u32 _lowered = 0;
 };

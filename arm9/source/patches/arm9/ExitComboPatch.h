@@ -15,10 +15,11 @@ public:
     /// @param romHeader The header of the game, for its arm9 and arm7 placement.
     /// @param arm9Size The size of the decompressed arm9.
     /// @param bssEnd The end of the arm9 bss, or 0 when unknown.
+    /// @param isCloneBootRom \c true if the rom being loaded is a clone boot rom.
     ExitComboPatch(OSResetSystemPatch* osResetSystemPatch, const nds_header_ntr_t* romHeader,
-        u32 arm9Size, u32 bssEnd)
+        u32 arm9Size, u32 bssEnd, bool isCloneBootRom)
         : _osResetSystemPatch(osResetSystemPatch), _romHeader(romHeader)
-        , _arm9Size(arm9Size), _bssEnd(bssEnd) { }
+        , _arm9Size(arm9Size), _bssEnd(bssEnd), _isCloneBootRom(isCloneBootRom) { }
 
     bool FindPatchTarget(PatchContext& patchContext) override;
     void ApplyPatch(PatchContext& patchContext) override;
@@ -41,11 +42,12 @@ private:
     const nds_header_ntr_t* _romHeader;
     u32 _arm9Size;
     u32 _bssEnd;
+    u32 _isCloneBootRom;
     MainMemoryArenaHi _mainMemoryArenaHi;
     u32* _dispatchTail = nullptr;
     u32 _savedTail[2];
-    // Everything written besides the hook lives in this one chunk, so a copy of
-    // what was there before is all it takes to undo it.
+    // Everything written besides the hook and a lowered arena hi lives in this one
+    // chunk, so a copy of what was there before is all it takes to undo it.
     u32* _chunk = nullptr;
     u32 _chunkSize = 0;
     u32* _savedChunk = nullptr;

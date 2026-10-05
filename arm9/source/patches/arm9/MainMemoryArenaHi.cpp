@@ -72,7 +72,7 @@ static s32 findMainMemoryArenaHiLiteral(const u32* image, s32 words, s32 arenaId
     return literal;
 }
 
-bool MainMemoryArenaHi::Find(const u32* image, u32 imageSize)
+bool MainMemoryArenaHi::Find(u32* image, u32 imageSize)
 {
     if (_searched)
         return _literal != nullptr;
@@ -106,4 +106,19 @@ bool MainMemoryArenaHi::Find(const u32* image, u32 imageSize)
         LOG_DEBUG("OS_GetInitArenaHi main memory literal not found\n");
     }
     return _literal != nullptr;
+}
+
+void MainMemoryArenaHi::Lower(u32 arenaHi)
+{
+    if (!_literal)
+        return;
+    *_literal = arenaHi;
+    _lowered = arenaHi;
+}
+
+void MainMemoryArenaHi::Restore()
+{
+    if (_lowered && *_literal == _lowered)
+        *_literal = _original;
+    _lowered = 0;
 }

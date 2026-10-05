@@ -10,12 +10,12 @@
 // The bios saved r0-r3, r12 and lr before entering the dispatcher, so those are
 // free to use; r4-r11 must be preserved.
 //
-// Deliberately small. The arm9 patch heap is scraped out of gaps in the game's
-// secure area and measured in a couple of hundred bytes, and PatchHeap gives up
-// on the whole patch when it does not fit, so every instruction here costs
-// coverage. It still has to carry the teardown itself rather than push it into
-// the shared reboot code: that code is allocated for every game whose own
-// OS_ResetSystem was found, so growing it can starve a game that boots today.
+// Deliberately small. It goes in what the arm9 patch heap has left after every
+// other patch, and otherwise in a block taken from the top of the game's main
+// heap, so every instruction here can cost a game its fit in the patch heap, or
+// memory the game would have had. It still has to carry the teardown itself
+// rather than push it into the shared reboot code: that code is allocated for
+// every game whose own OS_ResetSystem was found, so growing it can starve a game.
 .global patch_exitcombo_entry
 .type patch_exitcombo_entry, %function
 patch_exitcombo_entry:
@@ -35,7 +35,7 @@ patch_exitcombo_entry:
     // past resetParam, in the same shared page.
     ldr r3, patch_exitcombo_resetparam_address
     add r3, r3, #0x3C0
-    mcr p15, 0, r3, c7, c14, 1 // clean and invalidate the line, sdk 5 caches it
+    mcr p15, 0, r3, c7, c14, 1 // clean and invalidate the line, should a game cache it
     ldr r2, [r3] // lockFlag, nonzero while held
     cmp r2, #0
     bne dispatch // try again on the next vblank

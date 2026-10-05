@@ -1,6 +1,8 @@
 #pragma once
 #include "../Patch.h"
+#include "ndsHeader.h"
 #include "OSResetSystemPatch.h"
+#include "MainMemoryArenaHi.h"
 
 /// @brief Arm9 patch that hooks the SDK IRQ dispatcher to react to the in-game
 ///        exit combo the arm7 patch detects, and reboot into the launcher through
@@ -10,8 +12,13 @@
 class ExitComboPatch : public Patch
 {
 public:
-    explicit ExitComboPatch(OSResetSystemPatch* osResetSystemPatch)
-        : _osResetSystemPatch(osResetSystemPatch) { }
+    /// @param romHeader The header of the game, for its arm9 and arm7 placement.
+    /// @param arm9Size The size of the decompressed arm9.
+    /// @param bssEnd The end of the arm9 bss, or 0 when unknown.
+    ExitComboPatch(OSResetSystemPatch* osResetSystemPatch, const nds_header_ntr_t* romHeader,
+        u32 arm9Size, u32 bssEnd)
+        : _osResetSystemPatch(osResetSystemPatch), _romHeader(romHeader)
+        , _arm9Size(arm9Size), _bssEnd(bssEnd) { }
 
     bool FindPatchTarget(PatchContext& patchContext) override;
     void ApplyPatch(PatchContext& patchContext) override;
@@ -24,8 +31,17 @@ public:
     void Deactivate();
 
 private:
+    /// @brief Finds room for \p chunkSize bytes at the top of the game's main memory
+    ///        arena, right under its arena hi.
+    /// @return The start of that room, or 0 when the game cannot give it.
+    u32 FindBlockUnderArenaHi(u32 chunkSize);
+
     // 32-bit fields only: patches live in vram, where byte writes are lost on DS and DS Lite.
     OSResetSystemPatch* _osResetSystemPatch;
+    const nds_header_ntr_t* _romHeader;
+    u32 _arm9Size;
+    u32 _bssEnd;
+    MainMemoryArenaHi _mainMemoryArenaHi;
     u32* _dispatchTail = nullptr;
     u32 _savedTail[2];
     // Everything written besides the hook lives in this one chunk, so a copy of

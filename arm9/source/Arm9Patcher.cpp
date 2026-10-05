@@ -265,7 +265,8 @@ Arm9Patcher::PatchResult Arm9Patcher::ApplyPatches(const LoaderPlatform* loaderP
         // exit combo only claims what is left (and gives up when nothing fits).
         if (exitComboEnabled)
         {
-            exitComboPatch = new ExitComboPatch(osResetSystemPatch);
+            exitComboPatch = new ExitComboPatch(osResetSystemPatch, romHeader, arm9Size,
+                moduleParams ? moduleParams->bssEnd : 0);
             patchCollection.AddPatch(exitComboPatch);
         }
 

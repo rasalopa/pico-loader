@@ -1,4 +1,5 @@
 #include "common.h"
+#include "gameCode.h"
 #include "patches/PatchContext.h"
 #include "patches/platform/LoaderPlatform.h"
 #include "sharedMemory.h"
@@ -16,6 +17,30 @@ static_assert(offsetof(shared_memory_ntr_t, slot1Lock) - offsetof(shared_memory_
 // for directly rather than anchoring on the dispatcher prologue, whose exact
 // bytes vary across SDK versions.
 static const u32 sIrqDispatchTailPattern[] = { 0xE59F1008u, 0xE7910100u, 0xE59FE004u, 0xE12FFF10u };
+
+// These games lay out their own memory up to a fixed address near the top of main
+// memory instead of asking the sdk, so a lower arena hi would not keep them out of
+// a block taken from there.
+static bool keepsOwnHeapTop(u32 gameCode)
+{
+    switch (gameCode & 0xFFFFFF)
+    {
+        case GAMECODE_NO_REGION("ARM"): // Mario & Luigi: Partners in Time
+        case GAMECODE_NO_REGION("CLJ"): // Mario & Luigi: Bowser's Inside Story
+        case GAMECODE_NO_REGION("AH9"): // Tony Hawk's American Sk8land
+            return true;
+        default:
+            return false;
+    }
+}
+
+// Main memory is mirrored, so ranges are compared by their offset into it.
+static bool overlapsPhysically(u32 a, u32 aSize, u32 b, u32 bSize)
+{
+    a &= 0x3FFFFF;
+    b &= 0x3FFFFF;
+    return a < b + bSize && b < a + aSize;
+}
 
 bool ExitComboPatch::FindPatchTarget(PatchContext& patchContext)
 {
@@ -54,7 +79,9 @@ void ExitComboPatch::ApplyPatch(PatchContext& patchContext)
     }
     if (!patchContext.GetPatchHeap().CanAlloc(chunkSize))
     {
-        LOG_DEBUG("No patch heap space for the exit combo\n");
+        // only looked up for now, the block is not taken yet
+        u32 block = FindBlockUnderArenaHi(chunkSize);
+        LOG_DEBUG("No patch heap space for the exit combo, room under the arena hi at 0x%x\n", block);
         return;
     }
     _chunk = (u32*)patchContext.GetPatchHeap().Alloc(chunkSize);
@@ -100,6 +127,30 @@ void ExitComboPatch::ApplyPatch(PatchContext& patchContext)
     _installed = 1;
 
     LOG_DEBUG("Exit combo enabled\n");
+}
+
+u32 ExitComboPatch::FindBlockUnderArenaHi(u32 chunkSize)
+{
+    if (keepsOwnHeapTop(_romHeader->gameCode))
+        return 0;
+    if (!_mainMemoryArenaHi.Find((const u32*)_romHeader->arm9LoadAddress, _arm9Size))
+        return 0;
+
+    u32 blockSize = (chunkSize + 31) & ~31;
+    u32 block = _mainMemoryArenaHi.GetOriginal() - blockSize;
+
+    // above everything the arm9 binary takes, its bss included
+    u32 arm9End = _romHeader->arm9LoadAddress + _arm9Size;
+    if (_bssEnd > arm9End)
+        arm9End = _bssEnd;
+    if (block < arm9End)
+        return 0;
+
+    // and clear of the arm7 binary, which is still being loaded while this runs
+    if (overlapsPhysically(block, blockSize, _romHeader->arm7LoadAddress, _romHeader->arm7Size))
+        return 0;
+
+    return block;
 }
 
 void ExitComboPatch::Deactivate()

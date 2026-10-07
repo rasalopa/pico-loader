@@ -1,8 +1,9 @@
 #pragma once
 
 /// @brief The top of the game's main memory arena, as its OS_GetInitArenaHi returns
-///        it for OS_ARENA_MAIN. Only the arm code that loads it from a literal is
-///        handled; the thumb and the immediate forms are not.
+///        it for OS_ARENA_MAIN. Only the arm and thumb builds that load it from a
+///        literal are handled. Not sdk 2.0, which builds it as an immediate, nor the
+///        games that also run in dsi mode, which choose between two values at run time.
 class MainMemoryArenaHi
 {
 public:

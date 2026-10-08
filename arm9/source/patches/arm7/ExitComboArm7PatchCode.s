@@ -10,13 +10,33 @@
 // The bios saved r0-r3, r12 and lr before entering the dispatcher, so those are
 // free to use; r4-r11 must be preserved.
 //
+// A game that samples the microphone runs on the sdk's nested irq handler
+// instead, which reaches the handlers straight from the irq table without
+// passing the dispatcher tail. Its dispatch point is hooked as well, with the
+// handler about to be called already in r0. Both ways in share the detection
+// below, and lr tells dispatch which displaced instructions to make up for.
+//
 // This half owns the whole combo detection, because the arm7 patch heap has
 // hundreds of bytes to spare while the arm9 one barely has room for the reboot
 // path. It also means a missing arm9 patch cannot hang anything: without it
 // nobody ever answers the request and the combo simply does nothing.
+.global patch_exitcombo_arm7_prioentry
+.type patch_exitcombo_arm7_prioentry, %function
+patch_exitcombo_arm7_prioentry:
+    ldr r1, patch_exitcombo_arm7_table_address
+    ldr r1, [r1] // entry 0 of the irq table, the vblank handler
+    cmp r0, r1
+    bne prioDispatch
+    stmfd sp!, {r0}
+    mov r0, #0 // the vblank index, as the dispatcher tail would have it
+    mov lr, #1
+    b common
+
 .global patch_exitcombo_arm7_entry
 .type patch_exitcombo_arm7_entry, %function
 patch_exitcombo_arm7_entry:
+    mov lr, #0
+common:
     cmp r0, #0 // irq index 0 = vblank
     bne dispatch
 
@@ -165,10 +185,28 @@ park:
     bx r0
 
 dispatch:
+    cmp lr, #0
+    bne prioReturn
+
     // the dispatcher tail displaced by the hook
     ldr r1, patch_exitcombo_arm7_table_address
     ldr r0, [r1, r0, lsl #2]
     ldr lr, patch_exitcombo_arm7_return_address
+    bx r0
+
+prioReturn:
+    ldmfd sp!, {r0}
+prioDispatch:
+    // the nested handler's dispatch displaced by the other hook: it keeps the
+    // irq enable word and calls the handler. The handler is the irq vector for
+    // as long as it runs, so the return point is that plus a fixed distance.
+    mov r12, #0x04000000
+    ldr r1, [r12, #0x210] // REG_IE
+    stmfd sp!, {r1}
+    ldr lr, regIrqVector
+    ldr lr, [lr]
+    ldr r1, patch_exitcombo_arm7_prioreturn_offset
+    add lr, lr, r1
     bx r0
 
 // The loader's save code reaches the sd card through these two instead of the
@@ -226,6 +264,9 @@ regSoundCnt:
 regIpcSync:
     .word 0x04000180
 
+regIrqVector:
+    .word 0x0380FFFC
+
 requestMagic:
     .word 0x54495845 // EXIT_REQUEST_REQUEST_MAGIC
 
@@ -263,6 +304,10 @@ patch_exitcombo_arm7_table_address:
 
 .global patch_exitcombo_arm7_return_address
 patch_exitcombo_arm7_return_address:
+    .word 0
+
+.global patch_exitcombo_arm7_prioreturn_offset
+patch_exitcombo_arm7_prioreturn_offset:
     .word 0
 
 .global patch_exitcombo_arm7_sdread_address

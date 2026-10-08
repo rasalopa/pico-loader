@@ -1,6 +1,7 @@
 #include "common.h"
 #include "patches/PatchContext.h"
 #include "sharedMemory.h"
+#include "ndsHeader.h"
 #include "ExitComboArm7PatchCode.h"
 #include "ReadSavePatchCode.h"
 #include "WriteSavePatchCode.h"
@@ -11,6 +12,16 @@
 // side: ldr r1, [pc, #8]; ldr r0, [r1, r0, lsl #2]; ldr lr, [pc, #4]; bx r0.
 // The irq table address and the irq return address literals follow it.
 static const u32 sIrqDispatchTailPattern[] = { 0xE59F1008u, 0xE7910100u, 0xE59FE004u, 0xE12FFF10u };
+
+// Where the SDK's nested irq handler calls a handler out of the same table:
+// ldr r1, [ip, #0x210]; stmfd sp!, {r1}; add lr, pc, #0; bx r0. The microphone
+// sampling puts that handler in the irq vector, and a game that keeps sampling,
+// Zelda Phantom Hourglass for one, stops passing the dispatcher tail.
+static const u32 sPrioDispatchPattern[] = { 0xE59C1210u, 0xE92D0002u, 0xE28FE000u, 0xE12FFF10u };
+
+// Entry of that handler, a little before its dispatch point:
+// mov ip, #0x04000000; add r1, ip, #0x208; ldrh r0, [r1]; tst r0, r0.
+static const u32 sPrioHandlerEntryPattern[] = { 0xE3A0C301u, 0xE28C1F82u, 0xE1D100B0u, 0xE1100000u };
 
 bool ExitComboArm7Patch::FindPatchTarget(PatchContext& patchContext)
 {
@@ -26,6 +37,37 @@ bool ExitComboArm7Patch::FindPatchTarget(PatchContext& patchContext)
     else
     {
         LOG_DEBUG("Arm7 irq dispatch tail not found\n");
+    }
+
+    // The stub gets back into the nested handler through the irq vector, which
+    // holds the handler while it is in use, plus the distance from its entry to
+    // the instruction after the call. So the hook needs the entry as well.
+    _prioDispatch = nullptr;
+    u32* prioDispatch = patchContext.FindPattern32(sPrioDispatchPattern, sizeof(sPrioDispatchPattern));
+    if (prioDispatch)
+    {
+        auto romHeader = (const nds_header_ntr_t*)TWL_SHARED_MEMORY->ntrSharedMem.romHeader;
+        u32* lowest = (u32*)romHeader->arm7LoadAddress;
+        if (prioDispatch - lowest > 0x100)
+            lowest = prioDispatch - 0x100;
+        for (u32* entry = prioDispatch - 4; entry >= lowest; entry--)
+        {
+            if (entry[0] == sPrioHandlerEntryPattern[0] && entry[1] == sPrioHandlerEntryPattern[1] &&
+                entry[2] == sPrioHandlerEntryPattern[2] && entry[3] == sPrioHandlerEntryPattern[3])
+            {
+                _prioDispatch = prioDispatch;
+                _prioReturnOffset = (u32)(prioDispatch + 4) - (u32)entry;
+                break;
+            }
+        }
+    }
+    if (_prioDispatch)
+    {
+        LOG_DEBUG("Arm7 nested irq dispatch found at 0x%p, return offset 0x%X\n", _prioDispatch, _prioReturnOffset);
+    }
+    else
+    {
+        LOG_DEBUG("Arm7 nested irq dispatch not found\n");
     }
     return true; // optional patch
 }
@@ -63,11 +105,17 @@ void ExitComboArm7Patch::ApplyPatch(PatchContext& patchContext)
         sdRead,
         sdWrite,
         _dispatchTail[4], // irq table address literal
-        _dispatchTail[5]  // irq return address literal
+        _dispatchTail[5], // irq return address literal
+        _prioReturnOffset
     );
 
     _dispatchTail[0] = 0xE51FF004; // ldr pc,= address
     _dispatchTail[1] = (u32)exitComboPatchCode->GetExitComboFunction();
+    if (_prioDispatch)
+    {
+        _prioDispatch[0] = 0xE51FF004; // ldr pc,= address
+        _prioDispatch[1] = (u32)exitComboPatchCode->GetPrioDispatchFunction();
+    }
     _installed = 1;
 
     // Route the save code through the stub, so it knows when a save is running.

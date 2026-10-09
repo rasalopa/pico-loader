@@ -50,6 +50,8 @@ private:
     // chunk, so a copy of what was there before is all it takes to undo it.
     u32* _chunk = nullptr;
     u32 _chunkSize = 0;
+    u32 _blockSize = 0;
     u32* _savedChunk = nullptr;
+    u32 _savedWords = 0;
     u32 _installed = 0;
 };

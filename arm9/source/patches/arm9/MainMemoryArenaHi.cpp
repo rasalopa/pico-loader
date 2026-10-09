@@ -24,8 +24,39 @@ static constexpr u32 ARM_MOV_R0_ITCM_HI = 0xE3A00402u; // mov r0, #0x02000000
 static constexpr u32 ITCM_HI = 0x02000000u;
 static constexpr u32 MAIN_MEMORY_ARENA_HI = 0x023E0000u; // the only value seen in these forms
 
+// The sdk 2.0 builds make their value, 0x023C0000, as an immediate: mov r0, #0x023C0000;
+// ldmfd sp!, {lr}; bx lr in the switch body, or mov r0, #0x023C0000; bx lr as a leaf
+// case. The first is rewritten in place to subtract the distance and return with
+// ldmfd sp!, {pc}, which interworks on the arm9. The second has no room, so the
+// switch's b to it is pointed at a stub that does the same.
+static constexpr u32 ARM_MOV_R0_SDK2_ARENA_HI = 0xE3A0078Fu;
+static constexpr u32 SDK2_MAIN_MEMORY_ARENA_HI = 0x023C0000u;
+static constexpr u32 ARM_LDMFD_SP_LR = 0xE8BD4000u;
+static constexpr u32 ARM_LDMFD_SP_PC = 0xE8BD8000u;
+static constexpr u32 ARM_BX_LR = 0xE12FFF1Eu;
+
 static constexpr s32 NOT_THE_SWITCH = -1;
 static constexpr s32 UNSUPPORTED_FORM = -2;
+
+/// @brief Whether \p distance fits sub r0, r0, #distance as encoded below: any
+///        multiple of 16 up to 0xFF0 does, as imm8 rotated right by 28.
+static bool isSubR0Immediate(u32 distance)
+{
+    return distance != 0 && (distance & 0xF) == 0 && distance <= 0xFF0;
+}
+
+/// @brief sub r0, r0, #distance, for a distance \see isSubR0Immediate accepts.
+static u32 makeSubR0(u32 distance)
+{
+    return 0xE2400E00u | (distance >> 4);
+}
+
+/// @brief An arm b at \p from to \p to.
+static u32 makeArmBranch(const u32* from, const u32* to)
+{
+    s32 offset = (s32)((const u8*)to - (const u8*)from) - 8;
+    return 0xEA000000u | (((u32)offset >> 2) & 0xFFFFFFu);
+}
 
 /// @brief Returns the index of the first instruction of the case the b at \p branch
 ///        goes to, past an add sp, sp, #4, or -1 when that is not inside the image.
@@ -44,10 +75,12 @@ static s32 getCaseBody(const u32* image, s32 words, s32 branch)
 }
 
 /// @brief Checks whether the switch at \p arenaIdSwitch is the one of OS_GetInitArenaHi,
-///        and whether it returns the main memory arena hi from a literal.
-/// @return The index of that literal, NOT_THE_SWITCH to search on, or UNSUPPORTED_FORM
+///        and how it returns the main memory arena hi.
+/// @param form Receives the build it has, one of the FORM constants.
+/// @return The index of the literal, of the mov r0 of the in place build, or of the
+///         switch's b to the leaf case; NOT_THE_SWITCH to search on; UNSUPPORTED_FORM
 ///         when it is OS_GetInitArenaHi but built some other way.
-static s32 findMainMemoryArenaHiLiteral(const u32* image, s32 words, s32 arenaIdSwitch)
+static s32 findMainMemoryArenaHi(const u32* image, s32 words, s32 arenaIdSwitch, u32& form)
 {
     if (arenaIdSwitch > words - ARENA_ID_SWITCH_WORDS)
         return NOT_THE_SWITCH;
@@ -71,9 +104,25 @@ static s32 findMainMemoryArenaHiLiteral(const u32* image, s32 words, s32 arenaId
     if (itcmCase < 0 || image[itcmCase] != ARM_MOV_R0_ITCM_HI)
         return NOT_THE_SWITCH;
 
-    // case 0, OS_ARENA_MAIN: ldr r0, [pc, #imm]
+    // case 0, OS_ARENA_MAIN: ldr r0, [pc, #imm], or the sdk 2.0 immediate
     s32 mainCase = getCaseBody(image, words, arenaIdSwitch + 3);
-    if (mainCase < 0 || (image[mainCase] & 0xFFFFF000u) != 0xE59F0000u)
+    if (mainCase < 0)
+        return UNSUPPORTED_FORM;
+    if (image[mainCase] == ARM_MOV_R0_SDK2_ARENA_HI && mainCase + 2 < words)
+    {
+        if (image[mainCase + 1] == ARM_LDMFD_SP_LR && image[mainCase + 2] == ARM_BX_LR)
+        {
+            form = MainMemoryArenaHi::FORM_IMMEDIATE_IN_PLACE;
+            return mainCase;
+        }
+        if (image[mainCase + 1] == ARM_BX_LR)
+        {
+            form = MainMemoryArenaHi::FORM_IMMEDIATE_LEAF;
+            return arenaIdSwitch + 3;
+        }
+        return UNSUPPORTED_FORM;
+    }
+    if ((image[mainCase] & 0xFFFFF000u) != 0xE59F0000u)
         return UNSUPPORTED_FORM;
     u32 literalOffset = image[mainCase] & 0xFFF;
     if (literalOffset & 3)
@@ -81,6 +130,7 @@ static s32 findMainMemoryArenaHiLiteral(const u32* image, s32 words, s32 arenaId
     s32 literal = mainCase + 2 + (s32)(literalOffset / 4);
     if (literal >= words || image[literal] != MAIN_MEMORY_ARENA_HI)
         return UNSUPPORTED_FORM;
+    form = MainMemoryArenaHi::FORM_LITERAL;
     return literal;
 }
 
@@ -176,58 +226,113 @@ static s32 searchArenaIdSwitches(const u32* image, s32 words, const u32* pattern
 bool MainMemoryArenaHi::Find(u32* image, u32 imageSize)
 {
     if (_searched)
-        return _literal != nullptr;
+        return _site != nullptr;
     _searched = 1;
 
     s32 words = imageSize / 4;
-    s32 literal = searchArenaIdSwitches(image, words, sArenaIdSwitchPattern, [=] (s32 match)
+    u32 form = 0;
+    s32 site = searchArenaIdSwitches(image, words, sArenaIdSwitchPattern, [=, &form] (s32 match)
     {
-        return findMainMemoryArenaHiLiteral(image, words, match);
+        return findMainMemoryArenaHi(image, words, match, form);
     });
     // A game with an arm OS_GetInitArenaHi has no thumb one, and most games have the
     // arm one, so only the others pay for searching the thumb builds.
-    if (literal == NOT_THE_SWITCH)
+    if (site == NOT_THE_SWITCH)
     {
-        literal = searchArenaIdSwitches(image, words, sThumbArenaIdSwitchPatternA, [=] (s32 match)
+        form = FORM_LITERAL;
+        site = searchArenaIdSwitches(image, words, sThumbArenaIdSwitchPatternA, [=] (s32 match)
         {
             return findThumbMainMemoryArenaHiLiteral(image, words, match * 2 + THUMB_PATTERN_A_TO_SWITCH);
         });
     }
-    if (literal == NOT_THE_SWITCH)
+    if (site == NOT_THE_SWITCH)
     {
-        literal = searchArenaIdSwitches(image, words, sThumbArenaIdSwitchPatternB, [=] (s32 match)
+        site = searchArenaIdSwitches(image, words, sThumbArenaIdSwitchPatternB, [=] (s32 match)
         {
             return findThumbMainMemoryArenaHiLiteral(image, words, match * 2 + THUMB_PATTERN_B_TO_SWITCH);
         });
     }
-    if (literal >= 0)
+    if (site >= 0)
     {
-        _literal = &image[literal];
-        _original = *_literal;
+        _site = &image[site];
+        _form = form;
+        _original = form == FORM_LITERAL ? *_site : SDK2_MAIN_MEMORY_ARENA_HI;
     }
 
-    if (_literal)
+    if (_site)
     {
-        LOG_DEBUG("OS_GetInitArenaHi main memory literal at 0x%p\n", _literal);
+        LOG_DEBUG("OS_GetInitArenaHi main memory value from 0x%p, form %d\n", _site, _form);
     }
     else
     {
-        LOG_DEBUG("OS_GetInitArenaHi main memory literal not found\n");
+        LOG_DEBUG("OS_GetInitArenaHi main memory value not found\n");
     }
-    return _literal != nullptr;
+    return _site != nullptr;
 }
 
-void MainMemoryArenaHi::Lower(u32 arenaHi)
+bool MainMemoryArenaHi::CanLowerTo(u32 arenaHi) const
 {
-    if (!_literal)
+    if (!_site)
+        return false;
+    if (_form == FORM_LITERAL)
+        return true;
+    return isSubR0Immediate(_original - arenaHi);
+}
+
+void MainMemoryArenaHi::Lower(u32 arenaHi, u32* stub)
+{
+    if (!CanLowerTo(arenaHi))
         return;
-    *_literal = arenaHi;
+    u32 distance = _original - arenaHi;
+    switch (_form)
+    {
+        case FORM_LITERAL:
+            *_site = arenaHi;
+            break;
+        case FORM_IMMEDIATE_IN_PLACE:
+            // mov r0, #0x023C0000 stays; then sub r0, r0, #distance; ldmfd sp!, {pc}
+            _saved[0] = _site[1];
+            _saved[1] = _site[2];
+            _written[0] = makeSubR0(distance);
+            _written[1] = ARM_LDMFD_SP_PC;
+            _site[1] = _written[0];
+            _site[2] = _written[1];
+            break;
+        case FORM_IMMEDIATE_LEAF:
+            // the stub is the leaf case with the subtraction in it
+            stub[0] = ARM_MOV_R0_SDK2_ARENA_HI;
+            stub[1] = makeSubR0(distance);
+            stub[2] = ARM_BX_LR;
+            _saved[0] = *_site;
+            _written[0] = makeArmBranch(_site, stub);
+            *_site = _written[0];
+            break;
+    }
     _lowered = arenaHi;
 }
 
 void MainMemoryArenaHi::Restore()
 {
-    if (_lowered && *_literal == _lowered)
-        *_literal = _original;
+    if (_lowered)
+    {
+        switch (_form)
+        {
+            case FORM_LITERAL:
+                if (*_site == _lowered)
+                    *_site = _original;
+                break;
+            case FORM_IMMEDIATE_IN_PLACE:
+                if (_site[1] == _written[0] && _site[2] == _written[1])
+                {
+                    _site[1] = _saved[0];
+                    _site[2] = _saved[1];
+                }
+                break;
+            case FORM_IMMEDIATE_LEAF:
+                if (*_site == _written[0])
+                    *_site = _saved[0];
+                break;
+        }
+    }
     _lowered = 0;
 }

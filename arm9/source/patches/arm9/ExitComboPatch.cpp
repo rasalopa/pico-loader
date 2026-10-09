@@ -97,8 +97,10 @@ void ExitComboPatch::ApplyPatch(PatchContext& patchContext)
     _chunkSize = chunkSize;
 
     // Before anything goes in: loader_info_t is copied over as soon as it is allocated.
-    _savedChunk = new u32[chunkSize / 4];
-    for (u32 i = 0; i < chunkSize / 4; i++)
+    // A block is saved whole, as the arena hi code may put its stub at the end of it.
+    _savedWords = (block ? _blockSize : chunkSize) / 4;
+    _savedChunk = new u32[_savedWords];
+    for (u32 i = 0; i < _savedWords; i++)
         _savedChunk[i] = _chunk[i];
 
     PatchHeap chunkHeap;
@@ -135,7 +137,8 @@ void ExitComboPatch::ApplyPatch(PatchContext& patchContext)
     _dispatchTail[1] = (u32)exitComboPatchCode->GetExitComboFunction();
     if (block)
     {
-        _mainMemoryArenaHi.Lower(block);
+        u32 stubSize = _mainMemoryArenaHi.GetStubSize();
+        _mainMemoryArenaHi.Lower(block, stubSize ? (u32*)(block + _blockSize - stubSize) : nullptr);
         LOG_DEBUG("Main memory arena hi lowered to 0x%x\n", block);
     }
     _installed = 1;
@@ -152,8 +155,12 @@ u32 ExitComboPatch::FindBlockUnderArenaHi(u32 chunkSize)
     if (!_mainMemoryArenaHi.Find((u32*)_romHeader->arm9LoadAddress, _arm9Size))
         return 0;
 
-    u32 blockSize = (chunkSize + 31) & ~31;
+    // with room at its end for the code that hands the game the lowered value, when
+    // the game's build needs that
+    u32 blockSize = (chunkSize + _mainMemoryArenaHi.GetStubSize() + 31) & ~31;
     u32 block = _mainMemoryArenaHi.GetOriginal() - blockSize;
+    if (!_mainMemoryArenaHi.CanLowerTo(block))
+        return 0;
 
     // above everything the arm9 binary takes, its bss included
     u32 arm9End = _romHeader->arm9LoadAddress + _arm9Size;
@@ -166,6 +173,7 @@ u32 ExitComboPatch::FindBlockUnderArenaHi(u32 chunkSize)
     if (overlapsPhysically(block, blockSize, _romHeader->arm7LoadAddress, _romHeader->arm7Size))
         return 0;
 
+    _blockSize = blockSize;
     return block;
 }
 
@@ -182,7 +190,7 @@ void ExitComboPatch::Deactivate()
     }
     _mainMemoryArenaHi.Restore();
 
-    for (u32 i = 0; i < _chunkSize / 4; i++)
+    for (u32 i = 0; i < _savedWords; i++)
         _chunk[i] = _savedChunk[i];
 
     delete[] _savedChunk;

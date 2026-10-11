@@ -174,7 +174,8 @@ static void handleApplyArm7PatchesCommand(u32 cheatsLength, u32 dldiLength)
     char* bannerSavePath = nullptr;
     void* dldi = nullptr;
     void* patchSpaceStart = Arm7Patcher().ApplyPatches(
-        sLoaderPlatform, cheatsLength, cheats, bannerSavePath, dldiLength, dldi, sExitComboPatch != nullptr, sRunInDSiMode);
+        sLoaderPlatform, cheatsLength, cheats, bannerSavePath, dldiLength, dldi, sExitComboPatch != nullptr, sRunInDSiMode,
+        sKeepDsiBios);
     if (sSoftResetCheatsPointer != nullptr)
     {
         *sSoftResetCheatsPointer = cheats;

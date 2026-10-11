@@ -13,6 +13,7 @@
 #include "patches/arm9/CardiReadRomIdCorePatch.h"
 #include "patches/arm9/OSResetSystemPatch.h"
 #include "patches/arm9/ExitComboPatch.h"
+#include "patches/DsiBiosLz77SwiPatch.h"
 #include "patches/arm9/PokemonDownloaderArm9Patch.h"
 #include "patches/arm9/DSProtectArm9Patch.h"
 #include "patches/arm9/LastWindowCrcPatch.h"
@@ -261,6 +262,14 @@ Arm9Patcher::PatchResult Arm9Patcher::ApplyPatches(const LoaderPlatform* loaderP
         // as before: homebrew and DSi-enhanced roms in ds mode check scfg to
         // tell a DSi, which then reads as one.
         keepDsiBios = gIsDsiMode && exitComboEnabled;
+        if (keepDsiBios && !isCloneBootRom)
+        {
+            // The bios of the DSi has the lz77 callback decompression under
+            // another swi number. Left alone in a clone boot rom, as
+            // nds-bootstrap does: the thunk sits in the secure area, which the
+            // game sends as is to the download play children it boots.
+            patchCollection.AddPatch(new DsiBiosLz77SwiPatch(false));
+        }
         osResetSystemPatch = new OSResetSystemPatch(loaderInfo, runInDSiMode);
         patchCollection.AddPatch(osResetSystemPatch);
         AddGamePatches(patchCollection, romHeader->gameCode, apListEntry);

@@ -364,7 +364,9 @@ void NdsLoader::Load(BootMode bootMode)
         // If this value is incorrect, SVC_GetPitchTable doesn't work correctly in SDK 5.
         // When bit 2 is set (arm9i bootrom second half protected) and bit 5 is clear (arm7i bootrom in use)
         // it enables a bugfix to get pitch table values from the arm7i bios.
-        *(vu32*)0x03FFFFC8 = 0;
+        // A game that keeps the bios of the DSi gets the value the dsi menu
+        // sets in ds mode, with bit 5 cleared to say so.
+        *(vu32*)0x03FFFFC8 = _keepDsiBios ? 0xC0CC : 0;
     }
 
     if (bootMode != BootMode::Multiboot)

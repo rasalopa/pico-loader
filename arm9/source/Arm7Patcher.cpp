@@ -18,6 +18,8 @@
 #include "patches/arm7/PokemonDownloaderArm7Patch.h"
 #include "patches/arm7/cheats/CheatEnginePatch.h"
 #include "patches/arm7/ExitComboArm7Patch.h"
+#include "patches/arm7/DsiBiosPitchTablePatch.h"
+#include "patches/DsiBiosLz77SwiPatch.h"
 #include "Arm7Patcher.h"
 
 static u32 correctAddress(u32 address, const nds_header_ntr_t* romHeader)
@@ -33,7 +35,8 @@ static u32 correctAddress(u32 address, const nds_header_ntr_t* romHeader)
 }
 
 void* Arm7Patcher::ApplyPatches(const LoaderPlatform* loaderPlatform, u32 cheatsLength, void*& cheatsPtr,
-    char*& bannerSavePathPtr, u32 dldiLength, void*& dldiPtr, bool exitComboArm9Installed, bool runInDSiMode) const
+    char*& bannerSavePathPtr, u32 dldiLength, void*& dldiPtr, bool exitComboArm9Installed, bool runInDSiMode,
+    bool keepDsiBios) const
 {
     cheatsPtr = nullptr;
     dldiPtr = nullptr;
@@ -181,6 +184,15 @@ void* Arm7Patcher::ApplyPatches(const LoaderPlatform* loaderPlatform, u32 cheats
         if (isPokemonDownloader)
         {
             patchCollection.AddPatch(new PokemonDownloaderArm7Patch());
+        }
+
+        if (keepDsiBios)
+        {
+            // The bios of the DSi differs from the one of the DS in two calls
+            // the sdk makes. Ahead of the exit combo on purpose: the game keeps
+            // the dsi bios even if the combo's arm7 half does not fit after all.
+            patchCollection.AddPatch(new DsiBiosLz77SwiPatch(true));
+            patchCollection.AddPatch(new DsiBiosPitchTablePatch());
         }
 
         // Added last on purpose: this is an optional feature that must never take

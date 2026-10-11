@@ -2,6 +2,7 @@
 #include <libtwl/i2c/i2cMcu.h>
 #include <libtwl/sound/twlI2s.h>
 #include <libtwl/sound/sound.h>
+#include <libtwl/spi/spi.h>
 #include <libtwl/spi/spiCodec.h>
 #include <libtwl/spi/spiPmic.h>
 #include <libtwl/sys/twlScfg.h>
@@ -49,6 +50,18 @@ void DSMode::RestoreDSiMode() const
     receiveFromArm9();
 
     LOG_DEBUG("Restored dsi mode\n");
+}
+
+bool DSMode::IsCodecInDSMode() const
+{
+    // The dsi menu leaves this register at 0xF0 while the codec is in twl mode,
+    // and a codec in ds mode no longer answers twl style reads. nds-bootstrap
+    // relies on the same probe. The game can have been stopped in the middle of
+    // a codec transfer, so first release a chip select it may have left held.
+    spi_waitBusy();
+    REG_SPICNT = 0;
+    codec_setPage(CODEC_PAGE_1);
+    return codec_readRegister(CODEC_REG_PAGE1_OUTPUT_DRIVER_PGA_RAMP_DOWN_PERIOD_CONTROL) != 0xF0;
 }
 
 void DSMode::SwitchToDSTouchAndSoundMode(u32 gameCode) const

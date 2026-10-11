@@ -23,6 +23,10 @@ public:
     /// @param gameCode The game code of the game to switch CODEC to DS mode for.
     void SwitchToDSTouchAndSoundMode(u32 gameCode) const;
 
+    /// @brief Checks whether the codec already runs in ds mode.
+    /// @return True when the codec is in ds mode, false when it is in twl mode.
+    bool IsCodecInDSMode() const;
+
 private:
     void SwitchCodecToDSMode(u32 gameCode) const;
     bool ShouldUseVolumeFix(u32 gameCode) const;

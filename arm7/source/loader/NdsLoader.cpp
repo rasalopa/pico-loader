@@ -216,6 +216,15 @@ void NdsLoader::Load(BootMode bootMode)
         isCloneBootRom = bootMode != BootMode::Multiboot && IsCloneBootRom(romOffset);
     }
 
+    if (_runInDSiMode && (_romHeader.twlFlags2 & NDS_HEADER_TWL_FLAGS_2_USE_TWL_CODEC) && DSMode().IsCodecInDSMode())
+    {
+        // The codec is already in ds mode, which happens after a soft reset
+        // from a ds game. Run the rom with the ds touch protocol and the ds
+        // sound setup, as nds-bootstrap does in that case. This has to be
+        // decided before the header is copied to shared memory.
+        _romHeader.twlFlags2 &= ~NDS_HEADER_TWL_FLAGS_2_USE_TWL_CODEC;
+    }
+
     sendToArm9(IPC_COMMAND_ARM9_SET_ROM_FILE_INFO);
     sendToArm9(isHomebrew ? 0 : _romFile.dir_sect);
     sendToArm9(isHomebrew ? 0 : (u32)(_romFile.dir_ptr - _romFile.obj.fs->win));

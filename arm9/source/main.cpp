@@ -51,6 +51,7 @@ static u16 sRunInDSiMode;
 static loader_info_t sLoaderInfo;
 static void** sSoftResetCheatsPointer = nullptr;
 static ExitComboPatch* sExitComboPatch = nullptr;
+static u16 sKeepDsiBios; // not a bool: byte writes to vram are lost
 
 u16 gIsDsiMode;
 
@@ -94,6 +95,8 @@ static void clearGraphicsMemory()
 [[gnu::noinline, gnu::section(".itcm")]]
 static void bootArm9()
 {
+    // read before vram A, which holds the loader's data, is cleared
+    bool keepDsiBios = sKeepDsiBios;
     mem_setVramAMapping(MEM_VRAM_AB_LCDC);
     fastClear((void*)0x06800000, 0x20000); // VRAM A
     mem_setVramAMapping(MEM_VRAM_AB_NONE);
@@ -106,8 +109,10 @@ static void bootArm9()
 
     if (((REG_SCFG_EXT >> 14) & 3) == 0)
     {
-        // When switched to DS mode, disable vram extensions and lock scfg9
-        REG_SCFG_EXT &= ~((1 << 13) | (1 << 31));
+        // When switched to DS mode, disable vram extensions and lock scfg9.
+        // A game that keeps the dsi bios leaves scfg9 open, so the exit combo
+        // can restore dsi mode afterwards.
+        REG_SCFG_EXT &= keepDsiBios ? ~(1u << 13) : ~((1u << 13) | (1u << 31));
     }
 
     while (gfx_getVCount() != 191);
@@ -159,6 +164,7 @@ static void handleApplyArm9PatchesCommand()
         &sLoaderInfo);
     sSoftResetCheatsPointer = result.softResetCheatsPointer;
     sExitComboPatch = result.exitComboPatch;
+    sKeepDsiBios = result.keepDsiBios;
     ipc_sendWordDirect(1);
 }
 
@@ -186,6 +192,7 @@ static void handleApplyArm7PatchesCommand(u32 cheatsLength, u32 dldiLength)
     ipc_sendWordDirect((u32)cheats);
     ipc_sendWordDirect((u32)bannerSavePath);
     ipc_sendWordDirect((u32)dldi);
+    ipc_sendWordDirect(sKeepDsiBios ? 1 : 0);
 }
 
 static void handleSetAPInfoCommand()
@@ -273,6 +280,16 @@ static void handleBootCommand()
         REG_SCFG_RST = 1;
     }
     bootArm9();
+}
+
+// After a soft reset from a ds mode game the console is still configured as a
+// ds. Put the arm9 side back the way a fresh dsi boot has it.
+static void handleRestoreTwlModeCommand()
+{
+    REG_SCFG_EXT = 0x8307F100;
+    scfg_setArm9Clock(ScfgArm9Clock::Twl134MHz);
+    REG_SCFG_CLK = 0x87;
+    ipc_sendWordDirect(1);
 }
 
 static void handleSetupHomebrewBootstub(u32 dldiRequiredSpace)
@@ -369,6 +386,11 @@ static void handleArm7Command(u32 command)
         case IPC_COMMAND_ARM9_BOOT:
         {
             handleBootCommand();
+            break;
+        }
+        case IPC_COMMAND_ARM9_RESTORE_TWL_MODE:
+        {
+            handleRestoreTwlModeCommand();
             break;
         }
         case IPC_COMMAND_ARM9_SETUP_HOMEBREW_BOOTSTUB:

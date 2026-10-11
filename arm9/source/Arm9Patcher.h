@@ -22,6 +22,10 @@ public:
         /// @brief The arm9 half of the in-game exit, or \c nullptr when it was not
         ///        installed. The arm7 patcher only adds its half when this one is in.
         ExitComboPatch* exitComboPatch;
+
+        /// @brief \c true when the rom keeps the dsi bios on a DSi or 3DS, so the
+        ///        exit combo can bring the console back to dsi mode.
+        bool keepDsiBios;
     };
 
     /// @brief Applies arm9 patches using the given \p loaderPlatform.

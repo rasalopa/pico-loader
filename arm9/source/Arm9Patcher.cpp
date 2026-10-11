@@ -190,6 +190,7 @@ Arm9Patcher::PatchResult Arm9Patcher::ApplyPatches(const LoaderPlatform* loaderP
     ExitComboPatch* exitComboPatch = nullptr;
     bool isPokemonDownloader = false;
     bool exitComboEnabled = false;
+    bool keepDsiBios = false;
     if (sdkVersion != 0)
     {
         if (*(vu32*)0x02FFF00C == GAMECODE("ADAJ") &&
@@ -255,6 +256,11 @@ Arm9Patcher::PatchResult Arm9Patcher::ApplyPatches(const LoaderPlatform* loaderP
         }
 
         patchCollection.AddPatch(new CardiReadRomIdCorePatch());
+        // On a DSi or 3DS a game with the exit combo keeps the bios of the DSi,
+        // so the combo can return to dsi mode. Everything else gets the ds bios
+        // as before: homebrew and DSi-enhanced roms in ds mode check scfg to
+        // tell a DSi, which then reads as one.
+        keepDsiBios = gIsDsiMode && exitComboEnabled;
         osResetSystemPatch = new OSResetSystemPatch(loaderInfo, runInDSiMode);
         patchCollection.AddPatch(osResetSystemPatch);
         AddGamePatches(patchCollection, romHeader->gameCode, apListEntry);
@@ -297,7 +303,8 @@ Arm9Patcher::PatchResult Arm9Patcher::ApplyPatches(const LoaderPlatform* loaderP
     return PatchResult
     {
         .softResetCheatsPointer = softResetCheatsPointer,
-        .exitComboPatch = exitComboPatch != nullptr && exitComboPatch->IsInstalled() ? exitComboPatch : nullptr
+        .exitComboPatch = exitComboPatch != nullptr && exitComboPatch->IsInstalled() ? exitComboPatch : nullptr,
+        .keepDsiBios = keepDsiBios
     };
 }
 

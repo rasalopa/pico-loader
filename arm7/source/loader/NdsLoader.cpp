@@ -84,6 +84,14 @@ void NdsLoader::Load(BootMode bootMode)
             }
         }
 
+        if (Environment::IsDsiMode() && DSMode().IsMainMemoryInDSMode())
+        {
+            // Back from a ds mode game that kept the dsi bios. What the game
+            // left behind was read above through its 4 MB view, so both cpus
+            // can go back to the full dsi configuration now.
+            DSMode().RestoreDSiMode();
+        }
+
         ClearMainMemory();
 
         if (Environment::IsIsNitroEmulator())
@@ -373,7 +381,7 @@ void NdsLoader::Load(BootMode bootMode)
         }
         else
         {
-            DSMode().SwitchToDSMode(_romHeader.gameCode);
+            DSMode().SwitchToDSMode(_romHeader.gameCode, _keepDsiBios);
         }
     }
 
@@ -596,6 +604,7 @@ void NdsLoader::ApplyArm7Patches()
     void* cheatsPtr = (void*)receiveFromArm9();
     char* bannerSavePathPtr = (char*)receiveFromArm9();
     void* dldiPtr = (void*)receiveFromArm9();
+    _keepDsiBios = receiveFromArm9() != 0;
     if (cheatsPtr != nullptr && _cheats != nullptr)
     {
         memcpy(cheatsPtr, _cheats, _cheats->length);

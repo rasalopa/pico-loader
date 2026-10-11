@@ -64,6 +64,7 @@ private:
     pload_cheats_t* _cheats = nullptr;
     nds_header_twl_t _romHeader;
     bool _runInDSiMode = true;
+    bool _keepDsiBios = false;
     DsiWareSaveResult _dsiwareSaveResult;
 
     bool IsCloneBootRom(u32 romOffset);

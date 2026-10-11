@@ -9,18 +9,46 @@
 #include "gameCode.h"
 #include "DSMode.h"
 
-void DSMode::SwitchToDSMode(u32 gameCode) const
+void DSMode::SwitchToDSMode(u32 gameCode, bool keepDsiBios) const
 {
     SwitchToDSTouchAndSoundMode(gameCode);
     mcu_writeReg(MCU_REG_MODE, 0);
     *(vu16*)0x04004C04 |= (1 << 8); // ntr wifi
-    REG_SCFG_A9ROM = SCFG_A9ROM_DISABLE_SECURE | SCFG_A9ROM_NITRO;
-    REG_SCFG_A7ROM = SCFG_A7ROM_DISABLE_SECURE | SCFG_A7ROM_NITRO | SCFG_A7ROM_DISABLE_FUSE;
-    REG_SCFG_EXT = 0x12A03000u;
+    if (keepDsiBios)
+    {
+        // No switch to the ds bios and no scfg lock: both are one way, and the
+        // exit combo has to bring the console back to dsi mode. The i2c bus
+        // stays on top of the ds mode configuration too, for the power chip.
+        // The two bios calls that differ are patched in the game instead.
+        REG_SCFG_EXT = 0x12A03000u | (1u << 31) | (1u << 22);
+    }
+    else
+    {
+        REG_SCFG_A9ROM = SCFG_A9ROM_DISABLE_SECURE | SCFG_A9ROM_NITRO;
+        REG_SCFG_A7ROM = SCFG_A7ROM_DISABLE_SECURE | SCFG_A7ROM_NITRO | SCFG_A7ROM_DISABLE_FUSE;
+        REG_SCFG_EXT = 0x12A03000u;
+    }
     sendToArm9(IPC_COMMAND_ARM9_SWITCH_TO_DS_MODE);
     receiveFromArm9();
 
     LOG_DEBUG("Switched to ds mode\n");
+}
+
+bool DSMode::IsMainMemoryInDSMode() const
+{
+    return (REG_SCFG_EXT & 0xC000u) == 0;
+}
+
+void DSMode::RestoreDSiMode() const
+{
+    // The values of a fresh dsi boot. Only reachable when the game kept the
+    // dsi bios: otherwise scfg is locked and the loader starts in ds mode.
+    REG_SCFG_EXT = 0x93FFF707u;
+    *(vu16*)0x04004C04 &= ~(1 << 8); // dsi wifi
+    sendToArm9(IPC_COMMAND_ARM9_RESTORE_TWL_MODE);
+    receiveFromArm9();
+
+    LOG_DEBUG("Restored dsi mode\n");
 }
 
 void DSMode::SwitchToDSTouchAndSoundMode(u32 gameCode) const

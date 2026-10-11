@@ -20,6 +20,7 @@
 #include "ndsHeader.h"
 #include "globalHeap.h"
 #include "mmc/tmio.h"
+#include <libtwl/sys/twlScfg.h>
 
 #define HANDSHAKE_PART0     0xA
 #define HANDSHAKE_PART1     0xB
@@ -232,6 +233,12 @@ extern "C" void loaderMain()
 
     if (Environment::IsDsiMode())
     {
+        // After a soft reset from a ds mode game that kept the dsi bios, the
+        // arm7 side is still configured as a ds. Put back what a fresh dsi boot
+        // has, except the main memory size: what the game left behind is read
+        // through its 4 MB view until NdsLoader restores the rest.
+        REG_SCFG_EXT = (REG_SCFG_EXT & 0xC000u) | (0x93FFF707u & ~0xC000u);
+        REG_SCFG_CLK = 0x187;
         // Let the mcu handle the power button
         mcu_writeReg(MCU_REG_MODE, 0);
         TMIO_init();

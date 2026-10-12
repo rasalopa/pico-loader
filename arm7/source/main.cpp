@@ -250,6 +250,7 @@ extern "C" void loaderMain()
     memset(&gFatFs, 0, sizeof(gFatFs));
     bool multiboot = (gLoaderHeader.bootDrive & PLOAD_BOOT_DRIVE_MULTIBOOT_FLAG) != 0;
     gLoaderHeader.bootDrive &= ~PLOAD_BOOT_DRIVE_MULTIBOOT_FLAG;
+    bool usingCarriedDldi = false;
     bool retailSoftReset = !multiboot &&
         ((nds_header_ntr_t*)TWL_SHARED_MEMORY->ntrSharedMem.romHeader)->arm7EntryAddress == (u32)gLoaderHeader.entryPoint;
     if (retailSoftReset && gLoaderHeader.bootDrive == PLOAD_BOOT_DRIVE_DLDI && gLoaderHeader.dldiDriver == nullptr)
@@ -257,12 +258,23 @@ extern "C" void loaderMain()
         // A soft reset reloads Pico Loader without a dldi driver in its header.
         // Use the copy the game kept, if any, so this boot can pass it on.
         gLoaderHeader.dldiDriver = findCarriedDldiDriver();
+        usingCarriedDldi = gLoaderHeader.dldiDriver != nullptr;
     }
     switch (gLoaderHeader.bootDrive)
     {
         case PLOAD_BOOT_DRIVE_DLDI:
         {
-            if (dldi_init())
+            bool dldiReady = dldi_init();
+            if (!dldiReady && usingCarriedDldi)
+            {
+                // The copy the game kept did not start. The platform code can
+                // still reach the sd card, as before there was a copy.
+                LOG_WARNING("Carried dldi driver failed, using the platform code\n");
+                dldi_forgetDriver();
+                gLoaderHeader.dldiDriver = nullptr;
+                dldiReady = dldi_init();
+            }
+            if (dldiReady)
             {
                 mountDldi();
             }

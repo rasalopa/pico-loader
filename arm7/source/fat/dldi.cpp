@@ -101,6 +101,11 @@ void dldi_copyTo(void* target)
     memcpy(target, sDldiBuffer, sizeof(sDldiBuffer));
 }
 
+void dldi_forgetDriver()
+{
+    ((dldi_header_t*)sDldiBuffer)->dldiMagic = 0;
+}
+
 u32 dldi_getDriverSize()
 {
     auto header = (const dldi_header_t*)sDldiBuffer;

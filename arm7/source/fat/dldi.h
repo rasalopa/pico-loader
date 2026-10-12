@@ -12,6 +12,10 @@ void dldi_copyTo(void* target);
 ///        to homebrew.
 u32 dldi_getDriverSize();
 
+/// @brief Drops the driver in the buffer, so that it is no longer handed on or
+///        copied, after it failed to start.
+void dldi_forgetDriver();
+
 /// @brief Copies the loaded dldi driver, at most \p size bytes.
 void dldi_copyToSized(void* target, u32 size);
 

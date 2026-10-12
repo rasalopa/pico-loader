@@ -65,6 +65,14 @@ bool ExitComboArm7Patch::FindPatchTarget(PatchContext& patchContext)
     {
         LOG_DEBUG("Arm7 nested irq dispatch found at 0x%p, return offset 0x%X\n", _prioDispatch, _prioReturnOffset);
     }
+    else if (prioDispatch)
+    {
+        // The game has the nested handler but it cannot be hooked. While it is
+        // in use the combo would get no answer from the arm7 and the arm9 would
+        // wait for good, so the exit is left out instead.
+        LOG_DEBUG("Arm7 nested irq dispatch entry not found, no exit combo\n");
+        _dispatchTail = nullptr;
+    }
     else
     {
         LOG_DEBUG("Arm7 nested irq dispatch not found\n");

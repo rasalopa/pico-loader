@@ -257,19 +257,6 @@ Arm9Patcher::PatchResult Arm9Patcher::ApplyPatches(const LoaderPlatform* loaderP
         }
 
         patchCollection.AddPatch(new CardiReadRomIdCorePatch());
-        // On a DSi or 3DS a game with the exit combo keeps the bios of the DSi,
-        // so the combo can return to dsi mode. Everything else gets the ds bios
-        // as before: homebrew and DSi-enhanced roms in ds mode check scfg to
-        // tell a DSi, which then reads as one.
-        keepDsiBios = gIsDsiMode && exitComboEnabled;
-        if (keepDsiBios && !isCloneBootRom)
-        {
-            // The bios of the DSi has the lz77 callback decompression under
-            // another swi number. Left alone in a clone boot rom, as
-            // nds-bootstrap does: the thunk sits in the secure area, which the
-            // game sends as is to the download play children it boots.
-            patchCollection.AddPatch(new DsiBiosLz77SwiPatch(false));
-        }
         osResetSystemPatch = new OSResetSystemPatch(loaderInfo, runInDSiMode);
         patchCollection.AddPatch(osResetSystemPatch);
         AddGamePatches(patchCollection, romHeader->gameCode, apListEntry);
@@ -298,6 +285,22 @@ Arm9Patcher::PatchResult Arm9Patcher::ApplyPatches(const LoaderPlatform* loaderP
     if (!patchCollection.TryPerformPatches(patchContext))
     {
         ErrorDisplay().PrintError("Failed to apply arm9 patches.");
+    }
+
+    // On a DSi or 3DS a game whose exit combo got installed keeps the bios of
+    // the DSi, so the combo can return to dsi mode. Everything else gets the ds
+    // bios as before: homebrew and DSi-enhanced roms in ds mode check scfg to
+    // tell a DSi, which then reads as one.
+    keepDsiBios = gIsDsiMode && exitComboPatch != nullptr && exitComboPatch->IsInstalled();
+    if (keepDsiBios && !isCloneBootRom)
+    {
+        // The bios of the DSi has the lz77 callback decompression under another
+        // swi number. Left alone in a clone boot rom, as nds-bootstrap does: the
+        // thunk sits in the secure area, which the game sends as is to the
+        // download play children it boots.
+        DsiBiosLz77SwiPatch lz77SwiPatch(false);
+        lz77SwiPatch.FindPatchTarget(patchContext);
+        lz77SwiPatch.ApplyPatch(patchContext);
     }
     dc_flushAll();
     dc_drainWriteBuffer();

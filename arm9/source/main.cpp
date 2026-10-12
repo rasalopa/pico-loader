@@ -183,7 +183,8 @@ static void handleApplyArm7PatchesCommand(u32 cheatsLength, u32 dldiLength)
 
     // The arm7 half and the dldi copy only exist together. Without them the exit
     // can never fire, so the arm9 half goes too. After the cheats pointer above:
-    // when the exit brought its own reboot code, that pointer is inside it.
+    // when the exit brought its own reboot code, that pointer is inside it. The
+    // game still keeps the dsi bios then, as its bios patches are already in.
     if (sExitComboPatch != nullptr && dldi == nullptr)
     {
         sExitComboPatch->Deactivate();

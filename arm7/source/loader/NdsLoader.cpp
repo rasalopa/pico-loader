@@ -116,13 +116,11 @@ void NdsLoader::Load(BootMode bootMode)
                 delete[] pokemonBuffer;
             }
             // keep the exit combo alive across game-initiated soft resets,
-            // but never carry a pending request or a held combo over; the old
-            // dldi copy was taken at boot and a new one is made for this run
+            // but never carry a pending request or a held combo over
             memcpy(&TWL_SHARED_MEMORY->exitRequest, exitRequestBuffer, sizeof(exit_request_block_t));
             delete[] exitRequestBuffer;
             TWL_SHARED_MEMORY->exitRequest.requestMagic = 0;
             TWL_SHARED_MEMORY->exitRequest.comboMagic = 0;
-            TWL_SHARED_MEMORY->exitRequest.dldiDriverAddress = 0;
         }
         else
         {
@@ -598,23 +596,12 @@ void NdsLoader::HandleHomebrewPatching()
 
 void NdsLoader::ApplyArm7Patches()
 {
-    // Keep a copy of the dldi driver out of the game's way when returning to the
-    // launcher is possible. Rebooting into Pico Loader loses it otherwise: the
-    // reloaded loader can still reach the sd card through the platform patch
-    // code, but that is not a driver it can hand to the launcher, which would
-    // then come up with no filesystem at all. The exit request block is what
-    // tells: unlike the launcher path, it survives the game's own soft reset.
-    u32 dldiLength = TWL_SHARED_MEMORY->exitRequest.pathMagic == EXIT_REQUEST_PATH_MAGIC
-        ? dldi_getDriverSize() : 0;
-
     sendToArm9(IPC_COMMAND_ARM9_APPLY_ARM7_PATCHES);
     sendToArm9(_cheats ? _cheats->length : 0);
-    sendToArm9(dldiLength);
     PreprocessCheats();
     void* patchSpaceStart = (void*)receiveFromArm9();
     void* cheatsPtr = (void*)receiveFromArm9();
     char* bannerSavePathPtr = (char*)receiveFromArm9();
-    void* dldiPtr = (void*)receiveFromArm9();
     _keepDsiBios = receiveFromArm9() != 0;
     if (cheatsPtr != nullptr && _cheats != nullptr)
     {
@@ -623,18 +610,6 @@ void NdsLoader::ApplyArm7Patches()
     if (bannerSavePathPtr != nullptr)
     {
         memcpy(bannerSavePathPtr, _dsiwareSaveResult.bannerSaveFilePath, 64);
-    }
-    if (dldiPtr != nullptr && dldiLength > 0)
-    {
-        dldi_copyToSized(dldiPtr, dldiLength);
-        // Tell the reloaded loader where the copy is. The block was already
-        // mirrored for a DS mode game, so every copy gets the address.
-        TWL_SHARED_MEMORY->exitRequest.dldiDriverAddress = (u32)dldiPtr;
-        if (!_runInDSiMode)
-        {
-            ((exit_request_block_t*)0x027FF680)->dldiDriverAddress = (u32)dldiPtr;
-            ((exit_request_block_t*)0x023FF680)->dldiDriverAddress = (u32)dldiPtr;
-        }
     }
     if (patchSpaceStart)
     {
@@ -784,7 +759,10 @@ void NdsLoader::WriteExitRequestBlock()
 {
     auto& exitRequest = TWL_SHARED_MEMORY->exitRequest;
     memset(&exitRequest, 0, sizeof(exit_request_block_t));
-    if (!_launcherPath || _launcherPath[0] == 0)
+    // The exit hands the launcher the dldi driver built into Pico Loader, as the
+    // one it passed does not survive the game. So it is only offered when the
+    // driver in use is that same driver, in whatever build.
+    if (!_launcherPath || _launcherPath[0] == 0 || !dldi_isBuiltInDriverLoaded())
     {
         return;
     }

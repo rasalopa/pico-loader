@@ -105,16 +105,9 @@ struct exit_request_block_t
     u32 comboMagic;
 
     char launcherPath[256];
-
-    /// @brief Where the loader kept a copy of the dldi driver for the next boot,
-    ///        or zero. A soft reset, the game's own or the in-game exit, reloads
-    ///        Pico Loader without a driver in its header; it takes this one, so
-    ///        the launcher gets its filesystem back and the next game can keep
-    ///        a copy again.
-    u32 dldiDriverAddress;
 };
 
-static_assert(sizeof(exit_request_block_t) == 0x114);
+static_assert(sizeof(exit_request_block_t) == 0x110);
 
 static inline u32 exit_request_calcChecksum(const char (&launcherPath)[256])
 {
@@ -139,7 +132,7 @@ struct shared_memory_twl_t
     u8 twlRomHeader[0x1000];
     u8 sharedArena[0x680];
     exit_request_block_t exitRequest;
-    u8 gap3794[0x180 - sizeof(exit_request_block_t)];
+    u8 gap3790[0x180 - sizeof(exit_request_block_t)];
     shared_memory_ntr_t ntrSharedMem;
 };
 

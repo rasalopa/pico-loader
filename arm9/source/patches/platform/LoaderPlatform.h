@@ -58,4 +58,11 @@ public:
     /// @brief For platforms that need it this function may be used to (re)initialize the sd card.
     /// @return True if the sd card initialization was successful, or false otherwise.
     virtual bool InitializeSdCard() { return true; }
+
+    /// @brief Gets the dldi driver built into Pico Loader for the platform, if any.
+    ///        The in-game exit hands it to the launcher, because the driver the
+    ///        launcher passed does not survive the game.
+    /// @param size Receives the size of the driver in bytes.
+    /// @return A pointer to the driver, or \c nullptr when the platform has none.
+    virtual const void* GetBuiltInDldiDriver(u32& size) const { return nullptr; }
 };

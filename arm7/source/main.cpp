@@ -134,23 +134,6 @@ static bool isExitRequestBlockValid(const exit_request_block_t& block)
     return block.requestMagic == EXIT_REQUEST_REQUEST_MAGIC && isExitRequestPathValid(block);
 }
 
-// Returns the copy of the dldi driver the last game kept for the launcher, or
-// nullptr. Only the launcher path has to check out: after the game's own soft
-// reset no exit was requested, but the copy is still where it was kept.
-static void* findCarriedDldiDriver()
-{
-    const exit_request_block_t* blocks[] = { &TWL_SHARED_MEMORY->exitRequest, EXIT_REQUEST_LOW_MIRROR };
-    for (const exit_request_block_t* block : blocks)
-    {
-        u32 address = block->dldiDriverAddress;
-        if (isExitRequestPathValid(*block) && address >= 0x02000000 && address < 0x03000000 && (address & 3) == 0)
-        {
-            return (void*)address;
-        }
-    }
-    return nullptr;
-}
-
 // Returns a pending valid exit request, or nullptr. Both copies are checked
 // because a DS-mode game on a DSi may only reach the low mirror.
 static exit_request_block_t* findExitRequest()
@@ -250,26 +233,28 @@ extern "C" void loaderMain()
     memset(&gFatFs, 0, sizeof(gFatFs));
     bool multiboot = (gLoaderHeader.bootDrive & PLOAD_BOOT_DRIVE_MULTIBOOT_FLAG) != 0;
     gLoaderHeader.bootDrive &= ~PLOAD_BOOT_DRIVE_MULTIBOOT_FLAG;
-    bool usingCarriedDldi = false;
+    bool usingBuiltInDldi = false;
     bool retailSoftReset = !multiboot &&
         ((nds_header_ntr_t*)TWL_SHARED_MEMORY->ntrSharedMem.romHeader)->arm7EntryAddress == (u32)gLoaderHeader.entryPoint;
-    if (retailSoftReset && gLoaderHeader.bootDrive == PLOAD_BOOT_DRIVE_DLDI && gLoaderHeader.dldiDriver == nullptr)
+    if (retailSoftReset && gLoaderHeader.bootDrive == PLOAD_BOOT_DRIVE_DLDI && gLoaderHeader.dldiDriver == nullptr
+        && findExitRequest() != nullptr)
     {
-        // A soft reset reloads Pico Loader without a dldi driver in its header.
-        // Use the copy the game kept, if any, so this boot can pass it on.
-        gLoaderHeader.dldiDriver = findCarriedDldiDriver();
-        usingCarriedDldi = gLoaderHeader.dldiDriver != nullptr;
+        // The exit reloads Pico Loader without a dldi driver in its header. Take
+        // the built-in one, which the exit is only offered with, so this boot can
+        // pass it on to the launcher.
+        gLoaderHeader.dldiDriver = dldi_getBuiltInDriver();
+        usingBuiltInDldi = gLoaderHeader.dldiDriver != nullptr;
     }
     switch (gLoaderHeader.bootDrive)
     {
         case PLOAD_BOOT_DRIVE_DLDI:
         {
             bool dldiReady = dldi_init();
-            if (!dldiReady && usingCarriedDldi)
+            if (!dldiReady && usingBuiltInDldi)
             {
-                // The copy the game kept did not start. The platform code can
-                // still reach the sd card, as before there was a copy.
-                LOG_WARNING("Carried dldi driver failed, using the platform code\n");
+                // The built-in driver did not start. The platform code can still
+                // reach the sd card.
+                LOG_WARNING("Built-in dldi driver failed, using the platform code\n");
                 dldi_forgetDriver();
                 gLoaderHeader.dldiDriver = nullptr;
                 dldiReady = dldi_init();

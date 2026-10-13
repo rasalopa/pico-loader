@@ -106,18 +106,35 @@ void dldi_forgetDriver()
     ((dldi_header_t*)sDldiBuffer)->dldiMagic = 0;
 }
 
-u32 dldi_getDriverSize()
+void* dldi_getBuiltInDriver()
 {
-    auto header = (const dldi_header_t*)sDldiBuffer;
-    if (header->dldiMagic != DLDI_MAGIC)
-    {
-        return 0;
-    }
-    u32 driverSize = 1 << header->driverSize;
-    return driverSize <= sizeof(sDldiBuffer) ? driverSize : 0;
+    sendToArm9(IPC_COMMAND_ARM9_GET_BUILT_IN_DLDI_DRIVER);
+    return (void*)receiveFromArm9();
 }
 
-void dldi_copyToSized(void* target, u32 size)
+bool dldi_isBuiltInDriverLoaded()
 {
-    memcpy(target, sDldiBuffer, size > sizeof(sDldiBuffer) ? sizeof(sDldiBuffer) : size);
+    auto loaded = (const dldi_header_t*)sDldiBuffer;
+    if (loaded->dldiMagic != DLDI_MAGIC)
+    {
+        return false;
+    }
+    dldi_header_t builtIn;
+    u32* builtInWords = (u32*)&builtIn;
+    sendToArm9(IPC_COMMAND_ARM9_GET_BUILT_IN_DLDI_HEADER);
+    builtInWords[0] = receiveFromArm9();
+    if (builtInWords[0] == 0)
+    {
+        return false;
+    }
+    for (u32 i = 1; i < sizeof(dldi_header_t) / 4; i++)
+    {
+        builtInWords[i] = receiveFromArm9();
+    }
+    // By name and io type, not byte by byte: builds of a driver differ with the
+    // compiler, and the platform code already relies on the card protocol the
+    // built-in one speaks.
+    return builtIn.driverMagic == loaded->driverMagic
+        && strncmp((const char*)builtIn.driverName, (const char*)loaded->driverName,
+            sizeof(loaded->driverName)) == 0;
 }

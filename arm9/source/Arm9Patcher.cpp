@@ -39,13 +39,6 @@
 #include "Arm9Patcher.h"
 
 #define PARENT_SECTION_START    0x02001000
-
-// The in-game exit has only been tested on the DSpico.
-#ifdef PICO_LOADER_TARGET_DSPICO
-static constexpr bool sPlatformSupportsExitCombo = true;
-#else
-static constexpr bool sPlatformSupportsExitCombo = false;
-#endif
 #define PARENT_SECTION_END      0x02003000
 
 #define REQUIRED_PATCH_HEAP_SPACE   0x500
@@ -233,11 +226,12 @@ Arm9Patcher::PatchResult Arm9Patcher::ApplyPatches(const LoaderPlatform* loaderP
         }
 
         // The in-game exit covers DS mode retail games booted through dldi with a
-        // launcher to go back to. Left out: DSi mode, DSi-enhanced roms, DSiWare
-        // (it lacks the card patches the reboot code builds on), the downloader,
-        // whose patch heap at 0x023FF160 overlaps the exit request block, and the
-        // games with a NAND save.
-        exitComboEnabled = sPlatformSupportsExitCombo && !runInDSiMode && !isPokemonDownloader
+        // launcher to go back to, which the arm7 only records when the dldi
+        // driver in use is the one built into Pico Loader. Left out: DSi mode,
+        // DSi-enhanced roms, DSiWare (it lacks the card patches the reboot code
+        // builds on), the downloader, whose patch heap at 0x023FF160 overlaps the
+        // exit request block, and the games with a NAND save.
+        exitComboEnabled = !runInDSiMode && !isPokemonDownloader
             && romHeader->unitCode == 0
             && !(sdkVersion.IsTwlSdk() && twlRomHeader->IsDsiWare())
             && !hasNandSave(romHeader->gameCode)

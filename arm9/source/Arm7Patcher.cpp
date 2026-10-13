@@ -35,11 +35,11 @@ static u32 correctAddress(u32 address, const nds_header_ntr_t* romHeader)
 }
 
 void* Arm7Patcher::ApplyPatches(const LoaderPlatform* loaderPlatform, u32 cheatsLength, void*& cheatsPtr,
-    char*& bannerSavePathPtr, u32 dldiLength, void*& dldiPtr, bool exitComboArm9Installed, bool runInDSiMode,
+    char*& bannerSavePathPtr, bool exitComboArm9Installed, bool& exitComboArm7Installed, bool runInDSiMode,
     bool keepDsiBios) const
 {
     cheatsPtr = nullptr;
-    dldiPtr = nullptr;
+    exitComboArm7Installed = false;
     auto romHeader = (const nds_header_ntr_t*)TWL_SHARED_MEMORY->ntrSharedMem.romHeader;
     auto twlRomHeader = (const nds_header_twl_t*)TWL_SHARED_MEMORY->twlRomHeader;
     ModuleParamsLocator moduleParamsLocator;
@@ -113,29 +113,15 @@ void* Arm7Patcher::ApplyPatches(const LoaderPlatform* loaderPlatform, u32 cheats
             mainMemoryArenaLo += cheatsLength;
         }
 
-        // The in-game exit needs its arm7 half as well, and a copy of the dldi
-        // driver kept out of the way of the game: the reloaded loader reaches the
-        // sd card through the platform patch code, but that is not a driver it can
-        // pass on to the launcher. So the copy is only made once the arm9 half is
-        // in and the arm7 dispatcher was found, and without the copy there is no
-        // arm7 half either.
+        // The in-game exit needs its arm7 half as well, once the arm9 half is in
+        // and the arm7 dispatcher was found. It only takes patch heap, so the
+        // save buffer and banner path below stay where they are without it.
         ExitComboArm7Patch* exitComboArm7Patch = nullptr;
-        if (exitComboArm9Installed && dldiLength > 0)
+        if (exitComboArm9Installed)
         {
             exitComboArm7Patch = new ExitComboArm7Patch();
             exitComboArm7Patch->FindPatchTarget(patchContext);
-            u32 dldiStart = (mainMemoryArenaLo + 31) & ~31;
-            // Leave room for the save buffer and banner path placed after the copy,
-            // below the shared area at the end of this view of main memory.
-            u32 arenaEnd = (dldiStart & ~0x3FFFFF) + 0x3FF000;
-            if (exitComboArm7Patch->HasTarget() && dldiStart + dldiLength + 512 + 64 <= arenaEnd)
-            {
-                mainMemoryArenaLo = dldiStart;
-                dldiPtr = (void*)correctAddress(mainMemoryArenaLo, romHeader);
-                LOG_DEBUG("Dldi driver placed at 0x%p\n", dldiPtr);
-                mainMemoryArenaLo += dldiLength;
-            }
-            else
+            if (!exitComboArm7Patch->HasTarget())
             {
                 exitComboArm7Patch = nullptr;
             }
@@ -234,11 +220,8 @@ void* Arm7Patcher::ApplyPatches(const LoaderPlatform* loaderPlatform, u32 cheats
         dc_drainWriteBuffer();
         ic_invalidateAll();
 
-        if (exitComboArm7Patch != nullptr && !exitComboArm7Patch->IsInstalled())
-        {
-            // the arm7 half did not fit after all, so nothing would ever use the copy
-            dldiPtr = nullptr;
-        }
+        // the arm7 half may not have fit after all
+        exitComboArm7Installed = exitComboArm7Patch != nullptr && exitComboArm7Patch->IsInstalled();
 
         // If in DSi mode and the rom is a DSi rom, restore twl wram.
         if (runInDSiMode)

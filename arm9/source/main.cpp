@@ -168,24 +168,24 @@ static void handleApplyArm9PatchesCommand()
     ipc_sendWordDirect(1);
 }
 
-static void handleApplyArm7PatchesCommand(u32 cheatsLength, u32 dldiLength)
+static void handleApplyArm7PatchesCommand(u32 cheatsLength)
 {
     void* cheats = nullptr;
     char* bannerSavePath = nullptr;
-    void* dldi = nullptr;
+    bool exitComboArm7Installed = false;
     void* patchSpaceStart = Arm7Patcher().ApplyPatches(
-        sLoaderPlatform, cheatsLength, cheats, bannerSavePath, dldiLength, dldi, sExitComboPatch != nullptr, sRunInDSiMode,
-        sKeepDsiBios);
+        sLoaderPlatform, cheatsLength, cheats, bannerSavePath, sExitComboPatch != nullptr, exitComboArm7Installed,
+        sRunInDSiMode, sKeepDsiBios);
     if (sSoftResetCheatsPointer != nullptr)
     {
         *sSoftResetCheatsPointer = cheats;
     }
 
-    // The arm7 half and the dldi copy only exist together. Without them the exit
-    // can never fire, so the arm9 half goes too. After the cheats pointer above:
-    // when the exit brought its own reboot code, that pointer is inside it. The
-    // game still keeps the dsi bios then, as its bios patches are already in.
-    if (sExitComboPatch != nullptr && dldi == nullptr)
+    // Without its arm7 half the exit can never fire, so the arm9 half goes too.
+    // After the cheats pointer above: when the exit brought its own reboot code,
+    // that pointer is inside it. The game still keeps the dsi bios then, as its
+    // bios patches are already in.
+    if (sExitComboPatch != nullptr && !exitComboArm7Installed)
     {
         sExitComboPatch->Deactivate();
         dc_drainWriteBuffer();
@@ -193,7 +193,6 @@ static void handleApplyArm7PatchesCommand(u32 cheatsLength, u32 dldiLength)
     ipc_sendWordDirect((u32)patchSpaceStart);
     ipc_sendWordDirect((u32)cheats);
     ipc_sendWordDirect((u32)bannerSavePath);
-    ipc_sendWordDirect((u32)dldi);
     ipc_sendWordDirect(sKeepDsiBios ? 1 : 0);
 }
 
@@ -240,6 +239,45 @@ static void handleGetSdFunctionsCommand()
     dc_drainWriteBuffer();
     mem_setNtrWramMapping(MEM_NTR_WRAM_ARM7, MEM_NTR_WRAM_ARM7);
     ipc_sendWordDirect(1);
+}
+
+// Puts the platform's built-in dldi driver where the launcher puts its own when
+// it starts Pico Loader, and replies with its address, or 0 when there is none.
+static void handleGetBuiltInDldiDriverCommand()
+{
+    u32 size = 0;
+    const void* driver = sLoaderPlatform->GetBuiltInDldiDriver(size);
+    if (driver == nullptr)
+    {
+        ipc_sendWordDirect(0);
+        return;
+    }
+    mem_setNtrWramMapping(MEM_NTR_WRAM_ARM9, MEM_NTR_WRAM_ARM9);
+    memset((void*)0x037F8000, 0, 16 * 1024);
+    memcpy((void*)0x037F8000, driver, size);
+    dc_flushAll();
+    dc_drainWriteBuffer();
+    mem_setNtrWramMapping(MEM_NTR_WRAM_ARM7, MEM_NTR_WRAM_ARM7);
+    ipc_sendWordDirect(0x037F8000);
+}
+
+// Sends the header of the platform's built-in dldi driver word by word, or a
+// single 0 when there is none. Through the fifo, so it does not depend on the
+// wram mapping the launcher left.
+static void handleGetBuiltInDldiHeaderCommand()
+{
+    u32 size = 0;
+    auto driver = (const u32*)sLoaderPlatform->GetBuiltInDldiDriver(size);
+    if (driver == nullptr)
+    {
+        ipc_sendWordDirect(0);
+        return;
+    }
+    for (u32 i = 0; i < 0x80 / 4; i++)
+    {
+        while (ipc_isSendFifoFull());
+        ipc_sendWordDirect(driver[i]);
+    }
 }
 
 static void handleDisplayErrorCommand()
@@ -351,8 +389,7 @@ static void handleArm7Command(u32 command)
         case IPC_COMMAND_ARM9_APPLY_ARM7_PATCHES:
         {
             u32 cheatsLength = receiveFromArm7();
-            u32 dldiLength = receiveFromArm7();
-            handleApplyArm7PatchesCommand(cheatsLength, dldiLength);
+            handleApplyArm7PatchesCommand(cheatsLength);
             break;
         }
         case IPC_COMMAND_ARM9_SET_AP_INFO:
@@ -373,6 +410,16 @@ static void handleArm7Command(u32 command)
         case IPC_COMMAND_ARM9_GET_SD_FUNCTIONS:
         {
             handleGetSdFunctionsCommand();
+            break;
+        }
+        case IPC_COMMAND_ARM9_GET_BUILT_IN_DLDI_DRIVER:
+        {
+            handleGetBuiltInDldiDriverCommand();
+            break;
+        }
+        case IPC_COMMAND_ARM9_GET_BUILT_IN_DLDI_HEADER:
+        {
+            handleGetBuiltInDldiHeaderCommand();
             break;
         }
         case IPC_COMMAND_ARM9_DISPLAY_ERROR:

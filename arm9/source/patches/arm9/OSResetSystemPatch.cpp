@@ -95,13 +95,13 @@ void OSResetSystemPatch::ApplyPatch(PatchContext& patchContext)
         offset = 0xC;
     }
 
-    EmitRebootCode(patchContext, patchContext.GetPatchHeap());
+    EmitRebootCode(patchContext);
 
     *(u32*)((u8*)_osResetSystem + offset) = 0xE51FF004;
     *(u32*)((u8*)_osResetSystem + offset + 4) = (u32)_rebootCode->GetOSResetSystemFunction();
 }
 
-void OSResetSystemPatch::EmitRebootCode(PatchContext& patchContext, PatchHeap& patchHeap)
+void OSResetSystemPatch::EmitRebootCode(PatchContext& patchContext)
 {
     if (patchContext.GetSdkVersion().IsTwlSdk())
     {
@@ -114,16 +114,16 @@ void OSResetSystemPatch::EmitRebootCode(PatchContext& patchContext, PatchHeap& p
         patch_osresetsystem_entry_jump_to_twl_arm7_sync = THUMB_NOP;
     }
 
-    auto loaderInfoTarget = (loader_info_t*)patchHeap.Alloc(sizeof(loader_info_t));
+    auto loaderInfoTarget = (loader_info_t*)patchContext.GetPatchHeap().Alloc(sizeof(loader_info_t));
     memcpy(loaderInfoTarget, _loaderInfo, sizeof(loader_info_t));
 
     auto sdReadPatchCode = patchContext.GetLoaderPlatform()->CreateSdReadPatchCode(
-        patchContext.GetPatchCodeCollection(), patchHeap);
+        patchContext.GetPatchCodeCollection(), patchContext.GetPatchHeap());
     auto patchCodePart2 = patchContext.GetPatchCodeCollection().AddUniquePatchCode<OSResetSystemPart2PatchCode>(
-        patchHeap);
+        patchContext.GetPatchHeap());
     auto patchCode = patchContext.GetPatchCodeCollection().AddUniquePatchCode<OSResetSystemPatchCode>
     (
-        patchHeap,
+        patchContext.GetPatchHeap(),
         loaderInfoTarget,
         sdReadPatchCode,
         patchCodePart2

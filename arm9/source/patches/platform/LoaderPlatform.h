@@ -17,6 +17,13 @@ public:
     virtual const IReadSectorsPatchCode* CreateSdReadPatchCode(
         PatchCodeCollection& patchCodeCollection, PatchHeap& patchHeap) const = 0;
 
+    /// @brief Checks whether the SD read patch code is already in the given collection,
+    ///        so that \see CreateSdReadPatchCode takes nothing from the patch heap.
+    /// @param patchCodeCollection The patch code collection.
+    /// @return True if the SD read patch code is already in the collection, or false
+    ///         when it is not or the platform cannot tell.
+    virtual bool HasSdReadPatchCode(const PatchCodeCollection& patchCodeCollection) const { return false; }
+
     /// @brief Creates the SD read dma patch code for the platform.
     /// @param patchCodeCollection The patch code collection.
     /// @param patchHeap The patch heap.

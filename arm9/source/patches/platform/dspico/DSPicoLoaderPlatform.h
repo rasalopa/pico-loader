@@ -22,6 +22,11 @@ public:
         });
     }
 
+    bool HasSdReadPatchCode(const PatchCodeCollection& patchCodeCollection) const override
+    {
+        return patchCodeCollection.HasSharedPatchCode<DSPicoReadSdSectorsPatchCode>();
+    }
+
     const IReadSectorsDmaPatchCode* CreateSdReadDmaPatchCode(PatchCodeCollection& patchCodeCollection,
         PatchHeap& patchHeap, const void* miiCardDmaCopy32Ptr) const override
     {

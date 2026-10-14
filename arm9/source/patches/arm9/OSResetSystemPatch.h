@@ -2,7 +2,6 @@
 #include "../Patch.h"
 #include "LoaderInfo.h"
 
-class PatchHeap;
 class OSResetSystemPatchCode;
 
 /// @brief Arm9 patch to make OS_ResetSystem reboot into Pico Loader.
@@ -24,10 +23,10 @@ public:
     /// @brief Emits the code that reboots into Pico Loader, without hooking anything.
     ///        \see ApplyPatch uses it for the game's own OS_ResetSystem, and the
     ///        in-game exit for a game that has none.
-    /// @param patchContext The patch context to use.
-    /// @param patchHeap The heap to take loader_info_t and both code sections from,
-    ///        and the platform sd read code when the collection does not have it yet.
-    void EmitRebootCode(PatchContext& patchContext, PatchHeap& patchHeap);
+    /// @param patchContext The patch context to use. Its patch heap gives loader_info_t,
+    ///        both code sections, and the platform sd read code when the collection
+    ///        does not have it yet.
+    void EmitRebootCode(PatchContext& patchContext);
 
     /// @brief Returns the reboot code, or \c nullptr when it was not emitted.
     const OSResetSystemPatchCode* GetRebootCode() const

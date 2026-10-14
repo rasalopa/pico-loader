@@ -25,6 +25,17 @@ public:
     /// @return True if a contiguous free block of at least the given size exists.
     bool CanAlloc(u32 size) const;
 
+    /// @brief Checks whether blocks of the given sizes could all be allocated,
+    ///        one after the other in the given order. Runs the best fit of
+    ///        \see Alloc on a copy of the free blocks, so the same allocations in
+    ///        the same order are then certain not to halt.
+    /// @param sizes The sizes to check, in allocation order. None may be zero.
+    /// @param count The number of sizes.
+    /// @param addresses When not \c nullptr, receives the address each allocation
+    ///        would get, \p count of them.
+    /// @return True if every allocation would succeed.
+    bool CanAllocInOrder(const u32* sizes, u32 count, void** addresses = nullptr) const;
+
 private:
     struct PatchHeapBlock
     {

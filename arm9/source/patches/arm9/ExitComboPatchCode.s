@@ -1,61 +1,102 @@
 .cpu arm946e-s
-.section "patch_exitcombo", "ax"
 .syntax unified
 .arm
 
-// Arm9 half of the in-game exit to the launcher.
+// Arm9 half of the in-game exit to the launcher, in four pieces so each one fits
+// a gap the arm9 patch heap has left after every mandatory patch. A piece never
+// reaches another one pc-relative: every jump between pieces goes through a
+// literal the loader fills, as each piece lands at its own address.
 //
-// Reached through ldr pc from the first instruction of the SDK irq dispatcher
-// tail, so r0 holds the irq index and the original r1/lr loads did not run yet.
-// The bios saved r0-r3, r12 and lr before entering the dispatcher, so those are
-// free to use; r4-r11 must be preserved.
+// Registers: the bios saved r0-r3, r12 and lr before entering the dispatcher, and
+// the dispatcher tail the hook displaces loads r1 and lr itself, so r0-r3, r12 and
+// lr are free; r4-r11 must be preserved.
 //
-// Deliberately small. It goes in what the arm9 patch heap has left after every
-// other patch, and otherwise in a block taken from the top of the game's main
-// heap, so every instruction here can cost a game its fit in the patch heap, or
-// memory the game would have had. It still has to carry the teardown itself
-// rather than push it into the shared reboot code: that code is allocated for
-// every game whose own OS_ResetSystem was found, so growing it can starve a game.
-.global patch_exitcombo_entry
-.type patch_exitcombo_entry, %function
-patch_exitcombo_entry:
-    cmp r0, #0 // irq index 0 = vblank
-    bne dispatch
+// Fixed distances in the shared page, the same in both mirrors (static_asserts in
+// ExitComboPatch.cpp): resetParam is block + 0x5A0, the sdk card lock word is
+// block + 0x960 (resetParam + 0x3C0).
 
-    ldr r1, patch_exitcombo_block_address
+// ---------------------------------------------------------------- hook
+// Reached through ldr pc from the first instruction of the SDK irq dispatcher
+// tail, with r0 = irq index. Runs on every irq, so it stays short: only a vblank
+// with the arm7's combo magic set goes on to the check piece, which returns here
+// with r0 = 0 whenever the game goes on.
+.section "patch_exitcombo_hook", "ax"
+.global patch_exitcombo_hook_entry
+.type patch_exitcombo_hook_entry, %function
+patch_exitcombo_hook_entry:
+    cmp r0, #0 // irq index 0 = vblank
+    bne 1f
+    ldr r1, patch_exitcombo_hook_block_address
     mcr p15, 0, r1, c7, c6, 1 // invalidate the line, the arm7 has no cache
     ldr r2, [r1, #0x0C] // exit_request_block_t::comboMagic
-    ldr r3, comboMagic
+    ldr r3, hookComboMagic
     cmp r2, r3
-    bne dispatch
+    ldreq r12, patch_exitcombo_hook_check_address
+    blxeq r12
+1:
+    // the dispatcher tail displaced by the hook
+    ldr r1, patch_exitcombo_hook_table_address
+    ldr r0, [r1, r0, lsl #2]
+    ldr lr, patch_exitcombo_hook_return_address
+    bx r0
 
-    // Only between card operations. The sdk holds its card lock word for every
-    // rom read, and the DSpico stops for good when one is cut short, so this
-    // waits for a vblank where the word is free. Both sdk families keep it 0x3C0
-    // past resetParam, in the same shared page.
-    ldr r3, patch_exitcombo_resetparam_address
-    add r3, r3, #0x3C0
+hookComboMagic:
+    .word 0x424D4F43 // EXIT_REQUEST_COMBO_MAGIC
+.global patch_exitcombo_hook_block_address
+patch_exitcombo_hook_block_address:
+    .word 0
+.global patch_exitcombo_hook_check_address
+patch_exitcombo_hook_check_address:
+    .word 0
+.global patch_exitcombo_hook_table_address
+patch_exitcombo_hook_table_address:
+    .word 0
+.global patch_exitcombo_hook_return_address
+patch_exitcombo_hook_return_address:
+    .word 0
+
+// ---------------------------------------------------------------- check
+// r1 = block, r0 = 0, lr = back into the hook.
+// Only between card operations: the sdk holds its card lock word for every rom
+// read, and the DSpico stops for good when one is cut short, so this waits for a
+// vblank where the word is free.
+.section "patch_exitcombo_check", "ax"
+.global patch_exitcombo_check_entry
+.type patch_exitcombo_check_entry, %function
+patch_exitcombo_check_entry:
+    add r3, r1, #0x960 // sdk card lock word
     mcr p15, 0, r3, c7, c14, 1 // clean and invalidate the line, should a game cache it
     ldr r2, [r3] // lockFlag, nonzero while held
     cmp r2, #0
-    bne dispatch // try again on the next vblank
+    bxne lr // try again on the next vblank
 
-    ldr r3, ioBase
-    mov r2, #0
+    mov r3, #0x04000000
     str r2, [r3, #0x208] // IME = 0. Per cpu, so the arm7 keeps taking its vblank.
-
     // The reboot code hands over to the arm7 through this sync, so clear what
     // the game left in it before the arm7 can see the request.
     strb r2, [r3, #0x181] // REG_IPC_SYNC data out
 
-    ldr r12, requestMagic
+    ldr r12, checkRequestMagic
     str r12, [r1] // exit_request_block_t::requestMagic
     mcr p15, 0, r1, c7, c10, 1 // clean dcache entry by MVA
     mcr p15, 0, r2, c7, c10, 4 // drain write buffer
+    ldr pc, patch_exitcombo_check_wait_address // r1 = block, r2 = 0, r3 = io
 
-    // Wait for the arm7 to park, or to cancel when it cannot stop safely. The
-    // pause between reads keeps this off the bus while the arm7 finishes.
-    ldr r0, parkMagic
+checkRequestMagic:
+    .word 0x54495845 // EXIT_REQUEST_REQUEST_MAGIC
+.global patch_exitcombo_check_wait_address
+patch_exitcombo_check_wait_address:
+    .word 0
+
+// ---------------------------------------------------------------- wait
+// r1 = block, r2 = 0, r3 = 0x04000000, lr = back into the hook.
+// Waits for the arm7 to park, or to cancel when it cannot stop safely. The pause
+// between reads keeps this off the bus while the arm7 finishes.
+.section "patch_exitcombo_wait", "ax"
+.global patch_exitcombo_wait_entry
+.type patch_exitcombo_wait_entry, %function
+patch_exitcombo_wait_entry:
+    ldr r0, waitParkMagic
 1:
     mov r12, #0x400
 2:
@@ -64,7 +105,7 @@ patch_exitcombo_entry:
     mcr p15, 0, r1, c7, c6, 1 // invalidate the line
     ldr r12, [r1, #0x0C] // exit_request_block_t::comboMagic
     subs r12, r12, r0 // 0 = parked, 1 = cancelled
-    beq 3f
+    ldreq pc, patch_exitcombo_wait_teardown_address
     cmp r12, #1
     bne 1b
 
@@ -73,12 +114,23 @@ patch_exitcombo_entry:
     str r2, [r1] // exit_request_block_t::requestMagic = 0
     mcr p15, 0, r1, c7, c10, 1 // clean dcache entry by MVA
     mcr p15, 0, r2, c7, c10, 4 // drain write buffer
-    mov r12, #1
-    str r12, [r3, #0x208] // IME = 1
-    mov r0, #0 // irq index 0 = vblank
-    b dispatch
+    mov r0, #1
+    str r0, [r3, #0x208] // IME = 1
+    mov r0, #0 // irq index 0 = vblank, for the hook's dispatch
+    bx lr
 
-3:
+waitParkMagic:
+    .word 0x4B524150 // EXIT_REQUEST_PARK_MAGIC, EXIT_REQUEST_CANCEL_MAGIC is one more
+.global patch_exitcombo_wait_teardown_address
+patch_exitcombo_wait_teardown_address:
+    .word 0
+
+// ---------------------------------------------------------------- teardown
+// r1 = block, r2 = 0, r3 = 0x04000000. Never returns.
+.section "patch_exitcombo_teardown", "ax"
+.global patch_exitcombo_teardown_entry
+.type patch_exitcombo_teardown_entry, %function
+patch_exitcombo_teardown_entry:
     // Take the card back: the loader hands slot 1 to the arm7 before booting a
     // game and only the arm9 can undo that. Nothing is in flight on it: the
     // lock word was free and the arm7 parked between its own card accesses.
@@ -93,62 +145,22 @@ patch_exitcombo_entry:
     str r2, [r3, #0xD0] // DMA2CNT
     str r2, [r3, #0xDC] // DMA3CNT
 
-    ldr r3, patch_exitcombo_resetparam_address
-    str r2, [r3]
+    str r2, [r1, #0x5A0] // resetParam
 
     // Into the reboot code past its reset of the game's arm7, which ours already
     // parked, with the registers its entry would have loaded from its pool.
-    ldr r0, patch_exitcombo_resetpool_address
+    ldr r0, patch_exitcombo_teardown_resetpool_address
     ldmia r0, {r0, r1, r3, r4, r5, r6, r7}
     mov r9, r4 // readSdSectors
     mov r10, r7 // bootPicoLoader
-    ldr r12, patch_exitcombo_bootloaderbinaries_address
+    ldr r12, patch_exitcombo_teardown_bootloaderbinaries_address
     bx r12 // thumb
 
-dispatch:
-    // the dispatcher tail displaced by the hook
-    ldr r1, patch_exitcombo_table_address
-    ldr r0, [r1, r0, lsl #2]
-    ldr lr, patch_exitcombo_return_address
-    bx r0
-
-.balign 4
-
-ioBase:
-    .word 0x04000000
-
-comboMagic:
-    .word 0x424D4F43 // EXIT_REQUEST_COMBO_MAGIC
-
-parkMagic:
-    .word 0x4B524150 // EXIT_REQUEST_PARK_MAGIC, EXIT_REQUEST_CANCEL_MAGIC is one more
-
-requestMagic:
-    .word 0x54495845 // EXIT_REQUEST_REQUEST_MAGIC
-
-.global patch_exitcombo_block_address
-patch_exitcombo_block_address:
+.global patch_exitcombo_teardown_resetpool_address
+patch_exitcombo_teardown_resetpool_address:
+    .word 0
+.global patch_exitcombo_teardown_bootloaderbinaries_address
+patch_exitcombo_teardown_bootloaderbinaries_address:
     .word 0
 
-.global patch_exitcombo_resetparam_address
-patch_exitcombo_resetparam_address:
-    .word 0
-
-.global patch_exitcombo_resetpool_address
-patch_exitcombo_resetpool_address:
-    .word 0
-
-.global patch_exitcombo_bootloaderbinaries_address
-patch_exitcombo_bootloaderbinaries_address:
-    .word 0
-
-.global patch_exitcombo_table_address
-patch_exitcombo_table_address:
-    .word 0
-
-.global patch_exitcombo_return_address
-patch_exitcombo_return_address:
-    .word 0
-
-.pool
 .end

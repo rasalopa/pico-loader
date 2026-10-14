@@ -52,6 +52,21 @@ public:
         return static_cast<decltype(factoryFunction())>(entry.patchCode);
     }
 
+    /// @brief Checks whether a shared patch code of the given type is already in the collection.
+    /// @tparam T The type of patch code.
+    /// @return True if \see GetOrAddSharedPatchCode would return an existing instance.
+    template <typename T> requires std::derived_from<T, PatchCode>
+    bool HasSharedPatchCode() const
+    {
+        u32 id = GetPatchCodeId<T>();
+        for (const auto& entry : _patchCodeEntries)
+        {
+            if (entry.type == id)
+                return true;
+        }
+        return false;
+    }
+
     /// @brief Copies all patch codes to their target location.
     void CopyAllToTarget() const;
 

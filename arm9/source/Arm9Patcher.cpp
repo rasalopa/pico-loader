@@ -265,12 +265,10 @@ Arm9Patcher::PatchResult Arm9Patcher::ApplyPatches(const LoaderPlatform* loaderP
         // Added last on purpose: this is an optional feature that must never
         // take patch heap a mandatory patch needs. Because ApplyPatch runs in
         // insertion order, every mandatory patch above allocates first and the
-        // exit combo only claims what is left, or else a block from the top of
-        // the game's main heap.
+        // exit combo only claims what is left, or goes without.
         if (exitComboEnabled)
         {
-            exitComboPatch = new ExitComboPatch(osResetSystemPatch, romHeader, arm9Size,
-                moduleParams ? moduleParams->bssEnd : 0, isCloneBootRom);
+            exitComboPatch = new ExitComboPatch(osResetSystemPatch);
             patchCollection.AddPatch(exitComboPatch);
         }
 

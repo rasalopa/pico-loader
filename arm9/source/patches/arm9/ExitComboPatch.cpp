@@ -1,14 +1,19 @@
 #include "common.h"
-#include "gameCode.h"
 #include "patches/PatchContext.h"
 #include "patches/platform/LoaderPlatform.h"
 #include "sharedMemory.h"
+#include "LoaderInfo.h"
 #include "OSResetSystemPatchCode.h"
 #include "ExitComboPatchCode.h"
 #include "ExitComboPatch.h"
 
-// ExitComboPatchCode.s finds the sdk card lock word as resetParam + 0x3C0.
-static_assert(offsetof(shared_memory_ntr_t, slot1Lock) - offsetof(shared_memory_ntr_t, resetParam) == 0x3C0);
+// ExitComboPatchCode.s reaches resetParam and the sdk card lock word from the exit
+// request block. Both live in the same shared page in either mirror, so the distances
+// are fixed.
+static_assert(offsetof(shared_memory_twl_t, ntrSharedMem) + offsetof(shared_memory_ntr_t, resetParam)
+    - offsetof(shared_memory_twl_t, exitRequest) == 0x5A0);
+static_assert(offsetof(shared_memory_twl_t, ntrSharedMem) + offsetof(shared_memory_ntr_t, slot1Lock)
+    - offsetof(shared_memory_twl_t, exitRequest) == 0x960);
 
 // Tail of the SDK IRQ dispatcher: ldr r1, [pc, #8]; ldr r0, [r1, r0, lsl #2];
 // ldr lr, [pc, #4]; bx r0. The irq table address and the irq return address
@@ -17,30 +22,6 @@ static_assert(offsetof(shared_memory_ntr_t, slot1Lock) - offsetof(shared_memory_
 // for directly rather than anchoring on the dispatcher prologue, whose exact
 // bytes vary across SDK versions.
 static const u32 sIrqDispatchTailPattern[] = { 0xE59F1008u, 0xE7910100u, 0xE59FE004u, 0xE12FFF10u };
-
-// These games lay out their own memory up to a fixed address near the top of main
-// memory instead of asking the sdk, so a lower arena hi would not keep them out of
-// a block taken from there.
-static bool keepsOwnHeapTop(u32 gameCode)
-{
-    switch (gameCode & 0xFFFFFF)
-    {
-        case GAMECODE_NO_REGION("ARM"): // Mario & Luigi: Partners in Time
-        case GAMECODE_NO_REGION("CLJ"): // Mario & Luigi: Bowser's Inside Story
-        case GAMECODE_NO_REGION("AH9"): // Tony Hawk's American Sk8land
-            return true;
-        default:
-            return false;
-    }
-}
-
-// Main memory is mirrored, so ranges are compared by their offset into it.
-static bool overlapsPhysically(u32 a, u32 aSize, u32 b, u32 bSize)
-{
-    a &= 0x3FFFFF;
-    b &= 0x3FFFFF;
-    return a < b + bSize && b < a + aSize;
-}
 
 bool ExitComboPatch::FindPatchTarget(PatchContext& patchContext)
 {
@@ -63,118 +44,98 @@ void ExitComboPatch::ApplyPatch(PatchContext& patchContext)
 
     // A game without an OS_ResetSystem of its own gets the reboot code from here.
     // That code calls the platform sd read code, which the card read patches have
-    // already put in, except on a platform that reads the rom some other way.
+    // already put in on a platform that reads the rom from the sd card. Otherwise
+    // it would take patch heap that is not counted below.
+    auto& patchCodes = patchContext.GetPatchCodeCollection();
     bool emitRebootCode = !_osResetSystemPatch->HasTarget();
-    if (emitRebootCode && patchContext.GetLoaderPlatform()->HasRomReads())
+    if (emitRebootCode && !patchContext.GetLoaderPlatform()->HasSdReadPatchCode(patchCodes))
         return;
 
-    // One chunk for all of it, so it can be taken back as a whole. Unlike the
-    // mandatory patches this one gives up instead of halting when the heap is
-    // exhausted.
-    u32 chunkSize = SECTION_SIZE(patch_exitcombo);
+    // Everything this patch takes from the patch heap, in the order it is taken
+    // below. It only gets what the mandatory patches left, and all of it or
+    // nothing: Alloc halts when nothing fits, so the whole sequence is tried first.
+    const u32 sizes[] =
+    {
+        // OSResetSystemPatch::EmitRebootCode
+        sizeof(loader_info_t),
+        SECTION_SIZE(patch_osresetsystem_boot),
+        SECTION_SIZE(patch_osresetsystem),
+        // each piece before the one that jumps to it
+        SECTION_SIZE(patch_exitcombo_teardown),
+        SECTION_SIZE(patch_exitcombo_wait),
+        SECTION_SIZE(patch_exitcombo_check),
+        SECTION_SIZE(patch_exitcombo_hook)
+    };
+    constexpr u32 sizeCount = sizeof(sizes) / sizeof(sizes[0]);
+    u32 first = emitRebootCode ? 0 : 3;
+    void* addresses[sizeCount];
+    auto& patchHeap = patchContext.GetPatchHeap();
+    if (!patchHeap.CanAllocInOrder(&sizes[first], sizeCount - first, &addresses[first]))
+    {
+        LOG_DEBUG("No room for the exit combo\n");
+        return;
+    }
+
+    // Keep what the game has where all of it goes, to put it back should the arm7
+    // half not make it. Before anything goes in: loader_info_t is copied over as
+    // soon as it is allocated. Every size is a whole number of words.
+    u32 savedWords = 0;
+    for (u32 i = first; i < sizeCount; i++)
+        savedWords += sizes[i] / 4;
+    _savedGameWords = new u32[savedWords];
+    _savedRegionCount = 0;
+    savedWords = 0;
+    for (u32 i = first; i < sizeCount; i++)
+    {
+        _savedRegionAddress[_savedRegionCount] = (u32)addresses[i];
+        _savedRegionSize[_savedRegionCount++] = sizes[i];
+        for (u32 j = 0; j < sizes[i] / 4; j++)
+            _savedGameWords[savedWords++] = ((const u32*)addresses[i])[j];
+    }
+
     if (emitRebootCode)
     {
-        chunkSize += sizeof(loader_info_t)
-            + SECTION_SIZE(patch_osresetsystem) + SECTION_SIZE(patch_osresetsystem_boot);
-    }
-    // When the patch heap has no room left, the chunk goes in a block taken from the
-    // top of the game's main heap instead, and the game is told its heap ends there.
-    u32 block = 0;
-    if (patchContext.GetPatchHeap().CanAlloc(chunkSize))
-    {
-        _chunk = (u32*)patchContext.GetPatchHeap().Alloc(chunkSize);
-    }
-    else
-    {
-        block = FindBlockUnderArenaHi(chunkSize);
-        if (!block)
-        {
-            LOG_DEBUG("No room for the exit combo\n");
-            return;
-        }
-        _chunk = (u32*)block;
-    }
-    _chunkSize = chunkSize;
-
-    // Before anything goes in: loader_info_t is copied over as soon as it is allocated.
-    // A block is saved whole, as the arena hi code may put its stub at the end of it.
-    _savedWords = (block ? _blockSize : chunkSize) / 4;
-    _savedChunk = new u32[_savedWords];
-    for (u32 i = 0; i < _savedWords; i++)
-        _savedChunk[i] = _chunk[i];
-
-    PatchHeap chunkHeap;
-    chunkHeap.AddFreeSpace(_chunk, chunkSize);
-    if (emitRebootCode)
-    {
-        _osResetSystemPatch->EmitRebootCode(patchContext, chunkHeap);
+        _osResetSystemPatch->EmitRebootCode(patchContext);
     }
     auto rebootCode = _osResetSystemPatch->GetRebootCode();
 
     u32 blockAddress = (u32)&TWL_SHARED_MEMORY->exitRequest;
-    u32 resetParamAddress = (u32)&TWL_SHARED_MEMORY->ntrSharedMem.resetParam;
     if (!patchContext.GetSdkVersion().IsTwlSdk())
     {
         // SDK2-4 games access shared memory through the NTR mirror
         blockAddress -= 0x800000;
-        resetParamAddress -= 0x800000;
     }
 
-    auto exitComboPatchCode = patchContext.GetPatchCodeCollection().AddUniquePatchCode<ExitComboPatchCode>
-    (
-        chunkHeap,
-        blockAddress,
-        resetParamAddress,
-        (u32)rebootCode->GetPoolAtTarget(),
-        (u32)rebootCode->GetBootLoaderBinariesFunction(),
-        _dispatchTail[4], // irq table address literal
-        _dispatchTail[5]  // irq return address literal
-    );
+    auto teardown = patchCodes.AddUniquePatchCode<ExitComboTeardownPatchCode>(patchHeap,
+        rebootCode->GetPoolAtTarget(), rebootCode->GetBootLoaderBinariesFunction());
+    auto wait = patchCodes.AddUniquePatchCode<ExitComboWaitPatchCode>(patchHeap, teardown);
+    auto check = patchCodes.AddUniquePatchCode<ExitComboCheckPatchCode>(patchHeap, wait);
+    auto hook = patchCodes.AddUniquePatchCode<ExitComboHookPatchCode>(patchHeap, blockAddress, check,
+        _dispatchTail[4],  // irq table address literal
+        _dispatchTail[5]); // irq return address literal
+
+    LOG_DEBUG("Exit combo hook 0x%p, check 0x%p, wait 0x%p, teardown 0x%p\n", hook->GetEntryFunction(),
+        check->GetEntryFunction(), wait->GetEntryFunction(), teardown->GetEntryFunction());
+    // Each entry is the start of its piece, so this only fails if Alloc ever stops
+    // doing what CanAllocInOrder does. The pieces are copied in anyway, but without
+    // the hook nothing reaches them, and what was saved is not what they cover.
+    if (teardown->GetEntryFunction() != addresses[3] || wait->GetEntryFunction() != addresses[4] ||
+        check->GetEntryFunction() != addresses[5] || hook->GetEntryFunction() != addresses[6])
+    {
+        LOG_WARNING("Exit combo pieces not where planned, left out\n");
+        delete[] _savedGameWords;
+        _savedGameWords = nullptr;
+        return;
+    }
 
     _savedTail[0] = _dispatchTail[0];
     _savedTail[1] = _dispatchTail[1];
+    _hookEntry = (u32)hook->GetEntryFunction();
     _dispatchTail[0] = 0xE51FF004; // ldr pc,= address
-    _dispatchTail[1] = (u32)exitComboPatchCode->GetExitComboFunction();
-    if (block)
-    {
-        u32 stubSize = _mainMemoryArenaHi.GetStubSize();
-        _mainMemoryArenaHi.Lower(block, stubSize ? (u32*)(block + _blockSize - stubSize) : nullptr);
-        LOG_DEBUG("Main memory arena hi lowered to 0x%x\n", block);
-    }
+    _dispatchTail[1] = _hookEntry;
     _installed = 1;
 
     LOG_DEBUG("Exit combo enabled\n");
-}
-
-u32 ExitComboPatch::FindBlockUnderArenaHi(u32 chunkSize)
-{
-    // A clone boot game sends the start of its arm9 to download play clients from
-    // memory, and a lowered arena hi there could break that.
-    if (_isCloneBootRom || keepsOwnHeapTop(_romHeader->gameCode))
-        return 0;
-    if (!_mainMemoryArenaHi.Find((u32*)_romHeader->arm9LoadAddress, _arm9Size))
-        return 0;
-
-    // with room at its end for the code that hands the game the lowered value, when
-    // the game's build needs that
-    u32 blockSize = (chunkSize + _mainMemoryArenaHi.GetStubSize() + 31) & ~31;
-    u32 block = _mainMemoryArenaHi.GetOriginal() - blockSize;
-    if (!_mainMemoryArenaHi.CanLowerTo(block))
-        return 0;
-
-    // above everything the arm9 binary takes, its bss included
-    u32 arm9End = _romHeader->arm9LoadAddress + _arm9Size;
-    if (_bssEnd > arm9End)
-        arm9End = _bssEnd;
-    if (block < arm9End)
-        return 0;
-
-    // and clear of the arm7 binary, which is still being loaded while this runs
-    if (overlapsPhysically(block, blockSize, _romHeader->arm7LoadAddress, _romHeader->arm7Size))
-        return 0;
-
-    _blockSize = blockSize;
-    return block;
 }
 
 void ExitComboPatch::Deactivate()
@@ -182,19 +143,24 @@ void ExitComboPatch::Deactivate()
     if (!_installed)
         return;
 
-    // the hook only if it still jumps into the chunk
-    if (_dispatchTail[0] == 0xE51FF004 && _dispatchTail[1] - (u32)_chunk < _chunkSize)
+    // the hook only if it still jumps into the pieces
+    if (_dispatchTail[0] == 0xE51FF004 && _dispatchTail[1] == _hookEntry)
     {
         _dispatchTail[0] = _savedTail[0];
         _dispatchTail[1] = _savedTail[1];
     }
-    _mainMemoryArenaHi.Restore();
 
-    for (u32 i = 0; i < _savedWords; i++)
-        _chunk[i] = _savedChunk[i];
+    // and what the game had where the pieces and the reboot code went
+    u32 savedWords = 0;
+    for (u32 i = 0; i < _savedRegionCount; i++)
+    {
+        u32* region = (u32*)_savedRegionAddress[i];
+        for (u32 j = 0; j < _savedRegionSize[i] / 4; j++)
+            region[j] = _savedGameWords[savedWords++];
+    }
 
-    delete[] _savedChunk;
-    _savedChunk = nullptr;
+    delete[] _savedGameWords;
+    _savedGameWords = nullptr;
     _installed = 0;
 
     LOG_DEBUG("Exit combo taken back out\n");

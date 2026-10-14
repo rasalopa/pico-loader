@@ -58,6 +58,44 @@ bool PatchHeap::CanAlloc(u32 size) const
     return false;
 }
 
+bool PatchHeap::CanAllocInOrder(const u32* sizes, u32 count, void** addresses) const
+{
+    std::array<u32, std::tuple_size_v<decltype(_blocks)>> freeSizes;
+    std::array<u8*, std::tuple_size_v<decltype(_blocks)>> freeStarts;
+    u32 blockCount = 0;
+    for (const PatchHeapBlock* cur = _freeBlocks; cur; cur = cur->next)
+    {
+        freeSizes[blockCount] = cur->size;
+        freeStarts[blockCount] = (u8*)cur->block;
+        blockCount++;
+    }
+
+    for (u32 i = 0; i < count; i++)
+    {
+        // the same choice as Alloc; a block used up stays in as 0 and never fits again
+        u32 best = blockCount;
+        for (u32 j = 0; j < blockCount; j++)
+        {
+            if (freeSizes[j] >= sizes[i] && (best == blockCount || freeSizes[j] < freeSizes[best]))
+            {
+                best = j;
+                if (freeSizes[j] == sizes[i])
+                    break;
+            }
+        }
+
+        if (best == blockCount)
+            return false;
+
+        if (addresses)
+            addresses[i] = freeStarts[best];
+        freeStarts[best] += sizes[i];
+        freeSizes[best] -= sizes[i];
+    }
+
+    return true;
+}
+
 void* PatchHeap::Alloc(u32 size)
 {
     PatchHeapBlock* prev = nullptr;

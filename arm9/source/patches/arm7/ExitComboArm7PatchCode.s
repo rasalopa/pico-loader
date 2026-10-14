@@ -157,6 +157,17 @@ park:
     ldr r3, regSoundCnt
     strh r2, [r3]
 
+    // Wait from arm7 wram, never from main memory. Pico Loader boots games with
+    // main memory priority on the arm7 (EXMEMCNT bit 15), and a loop fetching its
+    // opcodes from there asks again before the memory is free, so the arm9 would
+    // never get another access and could not reload Pico Loader. The stub is in
+    // main memory when the game leaves too little arm7 wram for the patch heap.
+    // The game is never resumed, so its wram and r4-r12 are free to use.
+    adr r0, parkWait
+    ldmia r0, {r4-r12}
+    ldr r0, parkWaitAddress
+    stmia r0, {r4-r12}
+
     // Tell the arm9 we are out of the way, wait for it to finish reloading Pico
     // Loader, then release it and jump. The reboot code waits on the same three
     // step sync the sdk reset handler speaks, so it is unchanged. The arm9 stub
@@ -166,6 +177,10 @@ park:
     strb r2, [r3, #1] // sync out = 1, parked
     ldr r2, parkMagic
     str r2, [r1, #0x0C] // exit_request_block_t::comboMagic
+    bx r0
+
+// Runs from its copy in arm7 wram, so nothing pc relative. r3 = REG_IPC_SYNC.
+parkWait:
 1:
     ldrb r2, [r3]
     cmp r2, #1
@@ -183,6 +198,10 @@ park:
     mov r0, #0x06000000 // vram c, mapped to the arm7 by the arm9 side
     ldr r0, [r0] // pload_header7_t::entryPoint
     bx r0
+parkWaitEnd:
+.if parkWaitEnd - parkWait != 9 * 4
+.error "parkWait is copied as nine words"
+.endif
 
 dispatch:
     cmp lr, #0
@@ -263,6 +282,11 @@ regSoundCnt:
 
 regIpcSync:
     .word 0x04000180
+
+// The bottom of the game's arm7 stacks, right above its wram arena. Arm7Patcher
+// only puts the patch heap in arm7 wram when it ends 0x2100 bytes below this.
+parkWaitAddress:
+    .word 0x0380F780
 
 regIrqVector:
     .word 0x0380FFFC

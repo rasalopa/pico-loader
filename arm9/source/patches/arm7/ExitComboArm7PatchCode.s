@@ -269,7 +269,7 @@ regKeyInput:
     .word 0x04000130
 
 comboMask:
-    .word 0x0384 // L | R | Down | Select
+    .word 0x0314 // L | R | Right | Select
 
 regIme:
     .word 0x04000208

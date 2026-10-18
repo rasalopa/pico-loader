@@ -9,6 +9,14 @@
 #include "fastClear.h"
 #include "ErrorDisplay.h"
 
+// Shown under every error and warning, so that a photo of one in a report tells which loader
+// it came from. The font has no parentheses or commas.
+static const char sBuildFooter[] =
+    "Pico Loader Enhanced v1.0.0 - unofficial build\n"
+    "Report issues at:\n"
+    "github.com/rasalopa/pico-launcher-enhanced";
+static constexpr u32 BUILD_FOOTER_LINES = 3;
+
 static void waitForVBlank()
 {
     while (gfx_getVCount() != 191);
@@ -26,14 +34,24 @@ void ErrorDisplay::Print(const char* errorString, bool pressAToContinue)
     auto textBuffer = (u8*)0x02100000;
     memset(textBuffer, 0, 256 * 192);
     nft2_unpack((nft2_header_t*)font_nft2);
+    auto font = (const nft2_header_t*)font_nft2;
+    u32 footerY = 192 - BUILD_FOOTER_LINES * (font->ascend + font->descend + 1);
     nft2_string_render_params_t renderParams =
     {
         x: 0,
         y: 0,
         width: 256,
+        height: footerY
+    };
+    nft2_renderString(font, errorString, textBuffer, 256, &renderParams);
+    nft2_string_render_params_t footerParams =
+    {
+        x: 0,
+        y: (int)footerY,
+        width: 256,
         height: 192
     };
-    nft2_renderString((const nft2_header_t*)font_nft2, errorString, textBuffer, 256, &renderParams);
+    nft2_renderString(font, sBuildFooter, textBuffer, 256, &footerParams);
     memcpy((void*)GFX_BG_MAIN, textBuffer, 256 * 192);
     waitForVBlank();
     // 4 bit grayscale palette

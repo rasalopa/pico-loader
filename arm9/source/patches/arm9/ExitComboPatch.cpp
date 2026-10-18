@@ -23,6 +23,26 @@ static_assert(offsetof(shared_memory_twl_t, ntrSharedMem) + offsetof(shared_memo
 // bytes vary across SDK versions.
 static const u32 sIrqDispatchTailPattern[] = { 0xE59F1008u, 0xE7910100u, 0xE59FE004u, 0xE12FFF10u };
 
+// Retail games fill the gaps between the secure area system calls with random bytes, but
+// some romhacks keep code of their own there. These are words such code jumps or returns
+// with, which the filler of the retail games checked never holds.
+static bool HoldsArmBranch(const void* start, u32 size)
+{
+    const u32* words = (const u32*)start;
+    for (u32 i = 0; i < size / 4; i++)
+    {
+        u32 word = words[i];
+        if (word == 0xE51FF004 ||                // ldr pc, [pc, #-4]
+            (word & 0xFFFFF000) == 0xE59FF000 || // ldr pc, [pc, #imm]
+            (word & 0xFFFFFFF0) == 0xE12FFF10 || // bx rN
+            (word & 0xFFFF8000) == 0xE8BD8000)   // pop {..., pc}
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool ExitComboPatch::FindPatchTarget(PatchContext& patchContext)
 {
     _dispatchTail = patchContext.FindPattern32(sIrqDispatchTailPattern, sizeof(sIrqDispatchTailPattern));
@@ -74,6 +94,17 @@ void ExitComboPatch::ApplyPatch(PatchContext& patchContext)
     {
         LOG_DEBUG("No room for the exit combo\n");
         return;
+    }
+
+    // The mandatory patches took what they needed already; this takes more of the
+    // same gaps, so leave the exit out rather than write over a romhack's code.
+    for (u32 i = first; i < sizeCount; i++)
+    {
+        if (HoldsArmBranch(addresses[i], sizes[i]))
+        {
+            LOG_DEBUG("Exit combo space holds code, left out\n");
+            return;
+        }
     }
 
     // Keep what the game has where all of it goes, to put it back should the arm7

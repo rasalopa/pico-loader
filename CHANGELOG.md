@@ -1,5 +1,17 @@
 # Changelog
 
+## Enhanced fork
+
+### [Unreleased]
+
+#### Added
+- In-game exit on the DSpico: hold L+R+Right+Select for a moment in a DS game and it goes back to
+  the launcher it was started from. DSi-enhanced games, games running in DSi mode, DSiWare and
+  other platforms are left out. So are games that save to NAND, a few games whose interrupt code
+  is laid out differently (Diddy Kong Racing, Golden Sun: Dark Dawn), and games whose patch space
+  has no room for it or seems to hold code a romhack put there.
+- The error and warning screens name this build and where to report problems.
+
 ## [Unreleased]
 
 ### Added

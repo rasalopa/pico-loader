@@ -1,4 +1,8 @@
 # Pico Loader
+
+> [!NOTE]
+> This is Pico Loader Enhanced, an altered fork of [LNH's Pico Loader](https://github.com/LNH-team/pico-loader) that adds an in-game exit to the launcher on the DSpico. It is not an official LNH build: please report problems with it at [rasalopa/pico-launcher-enhanced](https://github.com/rasalopa/pico-launcher-enhanced/issues), not to LNH.
+
 Pico Loader is a homebrew and retail DS(i) rom loader supporting a variety of platforms (see below).
 
 ## Features
@@ -14,7 +18,7 @@ Pico Loader is a homebrew and retail DS(i) rom loader supporting a variety of pl
 
 Note that Pico Loader can currently not run retail roms from the DSi SD card. Homebrew is supported, however.
 
-Return to loader is also currently not supported in retail games yet.
+In this fork, most DS retail games on the DSpico can return to the launcher: hold L+R+Right+Select for a moment. DSi-enhanced games, games running in DSi mode and other platforms can't yet.
 
 ## Supported platforms
 

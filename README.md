@@ -1,7 +1,7 @@
 # Pico Loader
 
 > [!NOTE]
-> This is Pico Loader Enhanced, an altered fork of [LNH's Pico Loader](https://github.com/LNH-team/pico-loader) that adds an in-game exit to the launcher on the DSpico. It is not an official LNH build: please report problems with it at [rasalopa/pico-launcher-enhanced](https://github.com/rasalopa/pico-launcher-enhanced/issues), not to LNH.
+> **This is an altered version of Pico Loader, not the original.** Pico Loader Enhanced is a fork of [LNH-team/pico-loader](https://github.com/LNH-team/pico-loader) that adds an in-game exit to the launcher on the DSpico. See the [changelog](CHANGELOG.md#enhanced-fork) for how it works and which games are left out. Problems with this build are mine, not the LNH team's, so please report them at [rasalopa/pico-launcher-enhanced](https://github.com/rasalopa/pico-launcher-enhanced/issues) rather than upstream.
 
 Pico Loader is a homebrew and retail DS(i) rom loader supporting a variety of platforms (see below).
 

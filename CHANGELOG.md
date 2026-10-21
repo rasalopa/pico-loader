@@ -2,7 +2,7 @@
 
 ## Enhanced fork
 
-### [Unreleased]
+### [enhanced-v1.0.0]
 
 #### Added
 - In-game exit on the DSpico: hold L+R+Right+Select for a moment in a DS game and it goes back to

@@ -12,7 +12,7 @@
 // Shown under every error and warning, so that a photo of one in a report tells which loader
 // it came from. The font has no parentheses or commas.
 static const char sBuildFooter[] =
-    "Pico Loader Enhanced v1.0.0 - unofficial build\n"
+    "Pico Loader Enhanced v1.0.1 - unofficial build\n"
     "Report issues at:\n"
     "github.com/rasalopa/pico-launcher-enhanced";
 static constexpr u32 BUILD_FOOTER_LINES = 3;

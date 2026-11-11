@@ -66,8 +66,11 @@ void NdsLoader::Load(BootMode bootMode)
         u8* pokemonBuffer = nullptr;
         u8* multibootBuffer = nullptr;
         u8* exitRequestBuffer = nullptr;
+        u32 framesBeforeReset = 0;
         if (bootMode == BootMode::SdkResetSystem)
         {
+            // the game's own vblank counter, which clearing main memory wipes
+            framesBeforeReset = TWL_SHARED_MEMORY->ntrSharedMem.vblankCounter;
             gap0Buffer = new u8[sizeof(TWL_SHARED_MEMORY->ntrSharedMem.gap0)];
             memcpy(gap0Buffer, TWL_SHARED_MEMORY->ntrSharedMem.gap0, sizeof(TWL_SHARED_MEMORY->ntrSharedMem.gap0));
             gap200Buffer = new u8[sizeof(TWL_SHARED_MEMORY->ntrSharedMem.gap200)];
@@ -121,6 +124,10 @@ void NdsLoader::Load(BootMode bootMode)
             delete[] exitRequestBuffer;
             TWL_SHARED_MEMORY->exitRequest.requestMagic = 0;
             TWL_SHARED_MEMORY->exitRequest.comboMagic = 0;
+            if (TWL_SHARED_MEMORY->exitRequest.playMagic == EXIT_REQUEST_PLAY_MAGIC)
+            {
+                TWL_SHARED_MEMORY->exitRequest.playFrames += framesBeforeReset;
+            }
         }
         else
         {
@@ -812,6 +819,10 @@ void NdsLoader::WriteExitRequestBlock()
     strncpy(exitRequest.launcherPath, _launcherPath, sizeof(exitRequest.launcherPath) - 1);
     exitRequest.pathChecksum = exit_request_calcChecksum(exitRequest.launcherPath);
     exitRequest.pathMagic = EXIT_REQUEST_PATH_MAGIC;
+    if (_countPlayTime)
+    {
+        exitRequest.playMagic = EXIT_REQUEST_PLAY_MAGIC;
+    }
 }
 
 void NdsLoader::ClearMainMemory()

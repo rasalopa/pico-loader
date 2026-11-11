@@ -50,6 +50,13 @@ public:
         _cheats = cheats;
     }
 
+    /// @brief Sets whether the frames the game runs are counted for the launcher.
+    /// @param countPlayTime True to count them.
+    void SetCountPlayTime(bool countPlayTime)
+    {
+        _countPlayTime = countPlayTime;
+    }
+
     /// @brief Loads the rom according to the specified \p bootMode.
     /// @param bootMode The boot mode.
     void Load(BootMode bootMode);
@@ -62,6 +69,7 @@ private:
     u32 _argumentsLength = 0;
     const char* _arguments = nullptr;
     pload_cheats_t* _cheats = nullptr;
+    bool _countPlayTime = false;
     nds_header_twl_t _romHeader;
     bool _runInDSiMode = true;
     bool _keepDsiBios = false;

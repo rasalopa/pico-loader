@@ -1,6 +1,7 @@
 #include "common.h"
 #include <memory>
 #include <string.h>
+#include <stddef.h>
 #include <libtwl/ipc/ipcFifo.h>
 #include <libtwl/ipc/ipcSync.h>
 #include <libtwl/i2c/i2cMcu.h>
@@ -20,6 +21,7 @@
 #include "ndsHeader.h"
 #include "globalHeap.h"
 #include "mmc/tmio.h"
+#include "core/mini-printf.h"
 #include <libtwl/sys/twlScfg.h>
 
 #define HANDSHAKE_PART0     0xA
@@ -320,6 +322,18 @@ extern "C" void loaderMain()
             sLoader.SetRomPath(gLoaderHeader.loadParams.romPath);
             handleSavePath();
             sLoader.SetArguments(nullptr, 0);
+            if (exitRequest->playMagic == EXIT_REQUEST_PLAY_MAGIC)
+            {
+                // the frames carried over the game's soft resets plus its vblank
+                // counter now, read from the same copy of shared memory as the request
+                auto sharedMemory = (const shared_memory_twl_t*)((const u8*)exitRequest
+                    - offsetof(shared_memory_twl_t, exitRequest));
+                u32 frames = exitRequest->playFrames + sharedMemory->ntrSharedMem.vblankCounter;
+                static char sPlayFramesArgument[sizeof(PLOAD_PLAY_FRAMES_ARGUMENT "4294967295")];
+                int length = mini_snprintf(sPlayFramesArgument, sizeof(sPlayFramesArgument),
+                    PLOAD_PLAY_FRAMES_ARGUMENT "%u", frames);
+                sLoader.SetArguments(sPlayFramesArgument, length + 1);
+            }
             // boot the launcher exactly like a fresh launcher boot would,
             // pointing its return path at itself
             sLoader.SetLauncherPath(gLoaderHeader.loadParams.romPath);
@@ -336,6 +350,7 @@ extern "C" void loaderMain()
         handleSavePath();
         sLoader.SetArguments(gLoaderHeader.loadParams.arguments, gLoaderHeader.loadParams.argumentsLength);
         sLoader.SetLauncherPath(gLoaderHeader.v2.launcherPath);
+        sLoader.SetCountPlayTime((gLoaderHeader.enhanced.flags & PLOAD_ENHANCED_FLAG_COUNT_PLAY_TIME) != 0);
         sLoader.Load(BootMode::Normal);
     }
 

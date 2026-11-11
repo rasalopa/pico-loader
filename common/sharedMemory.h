@@ -81,11 +81,13 @@ static_assert(sizeof(shared_memory_ntr_t) == 0x800);
 #define EXIT_REQUEST_PARK_MAGIC     0x4B524150 // 'PARK'
 #define EXIT_REQUEST_CANCEL_MAGIC   (EXIT_REQUEST_PARK_MAGIC + 1)
 #define EXIT_REQUEST_CHECKSUM_XOR   0x5A5A5A5A
+#define EXIT_REQUEST_PLAY_MAGIC     0x59414C50 // 'PLAY'
 
 /// @brief Block used to request an in-game exit to the launcher.
-///        The loader fills pathMagic, pathChecksum and launcherPath at boot;
-///        the arm9 exit combo patch code only ever writes requestMagic, and the
-///        arm7 exit patch code only ever writes comboMagic.
+///        The loader fills pathMagic, pathChecksum, launcherPath and playMagic at
+///        boot, and adds to playFrames at each soft reset of the game; the arm9 exit
+///        combo patch code only ever writes requestMagic, and the arm7 exit patch
+///        code only ever writes comboMagic.
 /// @note  The first four words deliberately share one cache line: the arm9 patch
 ///        code invalidates that single line to read the comboMagic published by
 ///        the arm7, which has no cache of its own.
@@ -105,9 +107,15 @@ struct exit_request_block_t
     u32 comboMagic;
 
     char launcherPath[256];
+
+    /// @brief PLAY when the launcher asked for the play time of this game.
+    u32 playMagic;
+
+    /// @brief The game's vblank counter summed over its soft resets, which wipe it.
+    u32 playFrames;
 };
 
-static_assert(sizeof(exit_request_block_t) == 0x110);
+static_assert(sizeof(exit_request_block_t) == 0x118);
 
 static inline u32 exit_request_calcChecksum(const char (&launcherPath)[256])
 {
@@ -132,7 +140,7 @@ struct shared_memory_twl_t
     u8 twlRomHeader[0x1000];
     u8 sharedArena[0x680];
     exit_request_block_t exitRequest;
-    u8 gap3790[0x180 - sizeof(exit_request_block_t)];
+    u8 gap3798[0x180 - sizeof(exit_request_block_t)];
     shared_memory_ntr_t ntrSharedMem;
 };
 

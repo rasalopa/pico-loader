@@ -2,6 +2,14 @@
 
 ## Enhanced fork
 
+### [Unreleased]
+
+#### Added
+- Play time for the launcher: when it asks for it, the loader counts the frames a DS game runs,
+  across the game's own soft resets, and passes the count back after the in-game exit. Pico
+  Launcher Enhanced shows it from its next version. A launcher asks with a flag in a new part of
+  the header at 0x480, see `include/picoLoader7.h`. The official launcher doesn't use it.
+
 ### [enhanced-v1.0.1]
 
 #### Fixed
